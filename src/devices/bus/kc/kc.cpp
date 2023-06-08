@@ -300,7 +300,7 @@ WRITE_LINE_MEMBER( kcexp_slot_device::meo_w )
 //-------------------------------------------------
 kccart_slot_device::kccart_slot_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	kcexp_slot_device(mconfig, KCCART_SLOT, tag, owner, clock),
-	device_image_interface(mconfig, *this)
+	device_cartrom_image_interface(mconfig, *this)
 {
 }
 
@@ -316,15 +316,14 @@ kccart_slot_device::~kccart_slot_device()
     call load
 -------------------------------------------------*/
 
-image_init_result kccart_slot_device::call_load()
+std::pair<std::error_condition, std::string> kccart_slot_device::call_load()
 {
 	if (m_cart)
 	{
-		offs_t read_length;
-		uint8_t *cart_base = m_cart->get_cart_base();
-
-		if (cart_base != nullptr)
+		uint8_t *const cart_base = m_cart->get_cart_base();
+		if (cart_base)
 		{
+			offs_t read_length;
 			if (!loaded_through_softlist())
 			{
 				read_length = length();
@@ -337,10 +336,10 @@ image_init_result kccart_slot_device::call_load()
 			}
 		}
 		else
-			return image_init_result::FAIL;
+			return std::make_pair(image_error::INTERNAL, std::string());
 	}
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 /*-------------------------------------------------

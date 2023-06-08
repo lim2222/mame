@@ -22,8 +22,6 @@
 #include "emu.h"
 #include "i82357.h"
 
-#define LOG_GENERAL (1U << 0)
-
 //#define VERBOSE (LOG_GENERAL)
 
 #include "logmacro.h"
@@ -210,7 +208,7 @@ void i82357_device::device_start()
 	m_out_nmi.resolve_safe();
 	m_out_spkr.resolve_safe();
 
-	m_nmi_check = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(i82357_device::nmi_check), this));
+	m_nmi_check = timer_alloc(FUNC(i82357_device::nmi_check), this);
 }
 
 void i82357_device::device_reset()

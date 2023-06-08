@@ -50,10 +50,9 @@
 #include "machine/mc14411.h"
 #include "machine/6821pia.h"
 
-//#define LOG_GENERAL (1U <<  0)
-#define LOG_SETUP   (1U <<  1)
-#define LOG_PIA     (1U <<  2)
-#define LOG_ACIA    (1U <<  3)
+#define LOG_SETUP   (1U << 1)
+#define LOG_PIA     (1U << 2)
+#define LOG_ACIA    (1U << 3)
 
 //#define VERBOSE (LOG_PIA) // (LOG_PIA | LOG_GENERAL | LOG_SETUP)
 //#define LOG_OUTPUT_STREAM std::cout
@@ -264,6 +263,9 @@ void coco_t4426_device::device_start()
 {
 	LOG("%s()\n", FUNCNAME );
 	m_cart = dynamic_cast<device_image_interface *>(owner());
+
+	// save state support
+	save_item(NAME(m_select));
 }
 
 

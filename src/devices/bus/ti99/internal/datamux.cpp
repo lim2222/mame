@@ -72,17 +72,17 @@
 #include "datamux.h"
 #include "cpu/tms9900/tms99com.h"
 
-#define LOG_WARN        (1U<<1)   // Warnings
-#define LOG_READY       (1U<<2)   // READY line
-#define LOG_ACCESS      (1U<<3)   // Access to this GROM
-#define LOG_ADDRESS     (1U<<4)   // Address register
-#define LOG_WAITCOUNT   (1U<<5)   // Wait state counter
+#define LOG_WARN        (1U << 1)   // Warnings
+#define LOG_READY       (1U << 2)   // READY line
+#define LOG_ACCESS      (1U << 3)   // Access to this GROM
+#define LOG_ADDRESS     (1U << 4)   // Address register
+#define LOG_WAITCOUNT   (1U << 5)   // Wait state counter
 
-#define VERBOSE ( LOG_GENERAL | LOG_WARN )
+#define VERBOSE (LOG_GENERAL | LOG_WARN)
 
 #include "logmacro.h"
 
-DEFINE_DEVICE_TYPE_NS(TI99_DATAMUX, bus::ti99::internal, datamux_device, "ti99_datamux", "TI-99 Databus multiplexer")
+DEFINE_DEVICE_TYPE(TI99_DATAMUX, bus::ti99::internal::datamux_device, "ti99_datamux", "TI-99 Databus multiplexer")
 
 namespace bus::ti99::internal {
 
@@ -101,6 +101,7 @@ datamux_device::datamux_device(const machine_config &mconfig, const char *tag, d
 	m_grom0(*owner, TI99_GROM0_TAG),
 	m_grom1(*owner, TI99_GROM1_TAG),
 	m_grom2(*owner, TI99_GROM2_TAG),
+	m_tms9901(*owner, TI99_TMS9901_TAG),
 	m_ready(*this),
 	m_addr_buf(0),
 	m_dbin(CLEAR_LINE),
@@ -435,6 +436,10 @@ void datamux_device::setaddress(offs_t offset, uint16_t busctrl)
 	m_dbin = ((busctrl & TMS99xx_BUS_DBIN)!=0);
 
 	LOGMASKED(LOG_ADDRESS, "Set address %04x\n", m_addr_buf);
+
+	// Trigger the TMS9901 clock when A10 is 1
+	if ((m_addr_buf & 0x0020) != 0)
+		m_tms9901->update_clock();
 
 	if ((m_addr_buf & 0xe000) == 0x0000)
 	{

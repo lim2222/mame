@@ -46,8 +46,7 @@ DEFINE_DEVICE_TYPE(MICRODRIVE, microdrive_image_device, "microdrive_image", "Sin
 //-------------------------------------------------
 
 microdrive_image_device::microdrive_image_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
-	device_t(mconfig, MICRODRIVE, tag, owner, clock),
-	device_image_interface(mconfig, *this),
+	microtape_image_device(mconfig, MICRODRIVE, tag, owner, clock),
 	m_write_comms_out(*this)
 {
 }
@@ -71,7 +70,7 @@ void microdrive_image_device::device_start()
 	m_right = std::make_unique<uint8_t[]>(MDV_IMAGE_LENGTH / 2);
 
 	// allocate timers
-	m_bit_timer = timer_alloc();
+	m_bit_timer = timer_alloc(FUNC(microdrive_image_device::bit_timer), this);
 	m_bit_timer->adjust(attotime::zero, 0, attotime::from_hz(MDV_BITRATE));
 	m_bit_timer->enable(0);
 
@@ -80,10 +79,10 @@ void microdrive_image_device::device_start()
 	m_comms_out = 0;
 }
 
-image_init_result microdrive_image_device::call_load()
+std::pair<std::error_condition, std::string> microdrive_image_device::call_load()
 {
 	if (length() != MDV_IMAGE_LENGTH)
-		return image_init_result::FAIL;
+		return std::make_pair(image_error::INVALIDLENGTH, std::string());
 
 	// huh
 	for (int i = 0; i < MDV_IMAGE_LENGTH / 2; i++)
@@ -95,7 +94,7 @@ image_init_result microdrive_image_device::call_load()
 	m_bit_offset = 0;
 	m_byte_offset = 0;
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 void microdrive_image_device::call_unload()
@@ -107,7 +106,7 @@ void microdrive_image_device::call_unload()
 		memset(m_right.get(), 0, MDV_IMAGE_LENGTH / 2);
 }
 
-void microdrive_image_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(microdrive_image_device::bit_timer)
 {
 	m_bit_offset++;
 

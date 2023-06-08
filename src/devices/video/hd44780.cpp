@@ -2,12 +2,12 @@
 // copyright-holders:Sandro Ronco
 /***************************************************************************
 
-        Hitachi HD44780 LCD controller
+    Hitachi HD44780 LCD controller
 
-        TODO:
-        - dump internal CGROM
-        - emulate osc pin, determine video timings and busy flag duration from it,
-          and if possible, remove m_busy_factor
+    TODO:
+    - dump internal CGROM
+    - emulate osc pin, determine video timings and busy flag duration from it,
+      and if possible, remove m_busy_factor
 
 ***************************************************************************/
 
@@ -24,6 +24,7 @@
 
 DEFINE_DEVICE_TYPE(HD44780,    hd44780_device,    "hd44780_a00", "Hitachi HD44780 A00 LCD Controller")
 DEFINE_DEVICE_TYPE(SED1278_0B, sed1278_0b_device, "sed1278_0b",  "Epson SED1278-0B LCD Controller") // packaged as either SED1278F0B or SED1278D0B
+DEFINE_DEVICE_TYPE(KS0066_F00, ks0066_f00_device, "ks0066_f00",  "Samsung KS0066 F00 LCD Controller")
 DEFINE_DEVICE_TYPE(KS0066_F05, ks0066_f05_device, "ks0066_f05",  "Samsung KS0066 F05 LCD Controller")
 
 
@@ -39,6 +40,11 @@ ROM_END
 ROM_START( sed1278_0b )
 	ROM_REGION( 0x1000, "cgrom", 0 )
 	ROM_LOAD( "sed1278_0b.bin",    0x0000, 0x1000,  BAD_DUMP CRC(eef342fa) SHA1(d6ac58a48e428e7cff26fb9c8ea9b4eeaa853038)) // from page 9-33 of the SED1278 datasheet
+ROM_END
+
+ROM_START( ks0066_f00 )
+	ROM_REGION( 0x1000, "cgrom", 0 )
+	ROM_LOAD( "ks0066_f00.bin",    0x0000, 0x1000,  BAD_DUMP CRC(7a7d6027) SHA1(0cc77d8a028683b0e6c1b88f6f94b8801057601a)) // from page 48 of the KS0066 datasheet
 ROM_END
 
 ROM_START( ks0066_f05 )
@@ -70,6 +76,7 @@ hd44780_device::hd44780_device(const machine_config &mconfig, device_type type, 
 	, m_rw_input(0)
 	, m_db_input(0)
 	, m_enabled(false)
+	, m_function_set_at_any_time(false)
 {
 }
 
@@ -77,6 +84,12 @@ sed1278_0b_device::sed1278_0b_device(const machine_config &mconfig, const char *
 	hd44780_device(mconfig, SED1278_0B, tag, owner, clock)
 {
 	set_charset_type(CHARSET_SED1278_0B);
+}
+
+ks0066_f00_device::ks0066_f00_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+	hd44780_device(mconfig, KS0066_F00, tag, owner, clock)
+{
+	set_charset_type(CHARSET_KS0066_F00);
 }
 
 ks0066_f05_device::ks0066_f05_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
@@ -96,6 +109,7 @@ const tiny_rom_entry *hd44780_device::device_rom_region() const
 	{
 		case CHARSET_HD44780_A00:   return ROM_NAME( hd44780_a00 );
 		case CHARSET_SED1278_0B:    return ROM_NAME( sed1278_0b );
+		case CHARSET_KS0066_F00:    return ROM_NAME( ks0066_f00 );
 		case CHARSET_KS0066_F05:    return ROM_NAME( ks0066_f05 );
 	}
 
@@ -112,8 +126,8 @@ void hd44780_device::device_start()
 
 	m_pixel_update_cb.resolve();
 
-	m_busy_timer = timer_alloc(TIMER_BUSY);
-	m_blink_timer = timer_alloc(TIMER_BLINKING);
+	m_busy_timer = timer_alloc(FUNC(hd44780_device::clear_busy_flag), this);
+	m_blink_timer = timer_alloc(FUNC(hd44780_device::blink_tick), this);
 	m_blink_timer->adjust(attotime::from_msec(409), 0, attotime::from_msec(409));
 
 	// state saving
@@ -177,21 +191,17 @@ void hd44780_device::device_reset()
 
 
 //-------------------------------------------------
-//  device_timer - handler timer events
+//  timer events
 //-------------------------------------------------
 
-void hd44780_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(hd44780_device::clear_busy_flag)
 {
-	switch (id)
-	{
-		case TIMER_BUSY:
-			m_busy_flag = false;
-			break;
+	m_busy_flag = false;
+}
 
-		case TIMER_BLINKING:
-			m_blink = !m_blink;
-			break;
-	}
+TIMER_CALLBACK_MEMBER(hd44780_device::blink_tick)
+{
+	m_blink = !m_blink;
 }
 
 
@@ -487,7 +497,7 @@ void hd44780_device::control_write(u8 data)
 	else if (BIT(m_ir, 5))
 	{
 		// function set
-		if (!m_first_cmd && m_data_len == (BIT(m_ir, 4) ? 8 : 4) && (m_char_size != (BIT(m_ir, 2) ? 10 : 8) || m_num_line != (BIT(m_ir, 3) + 1)))
+		if (!m_function_set_at_any_time && !m_first_cmd && m_data_len == (BIT(m_ir, 4) ? 8 : 4) && (m_char_size != (BIT(m_ir, 2) ? 10 : 8) || m_num_line != (BIT(m_ir, 3) + 1)))
 		{
 			logerror("HD44780: function set cannot be executed after other instructions unless the interface data length is changed\n");
 			return;

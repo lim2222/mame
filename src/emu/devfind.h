@@ -308,7 +308,7 @@ public:
 	}
 
 	/// \brief Dummy tag always treated as not found
-	constexpr static char DUMMY_TAG[17] = "finder_dummy_tag";
+	static constexpr char DUMMY_TAG[17] = "finder_dummy_tag";
 
 protected:
 	/// \brief Designated constructor
@@ -350,8 +350,6 @@ protected:
 	/// report_missing to print an error message if the region is
 	/// not found.  Returns true if the region is required but no
 	/// matching region is found, or false otherwise.
-	/// \param [in] bytes Desired region length in bytes, or 0U to match
-	///   any length.
 	/// \param [in] required True if the region is required, or false if
 	///   it is optional.
 	/// \return True if the region is optional, or if the region is
@@ -1059,8 +1057,6 @@ public:
 	/// \param [in] tag Memory region tag to search for.  This is not
 	///   copied, it is the caller's responsibility to ensure this
 	///   pointer remains valid until resolution time.
-	/// \param [in] length Desired memory region length in units of the
-	///   size of the element type, or zero to match any region length.
 	region_ptr_finder(device_t &base, char const *tag)
 		: object_finder_base<PointerType, Required>(base, tag)
 		, m_length(0)
@@ -1190,6 +1186,33 @@ public:
 	///   been found.
 	size_t bytes() const { return m_bytes; }
 
+	/// \brief Get iterator to first element
+	///
+	/// Returns an iterator to the first element of the memory share.
+	/// \return Iterator to first element.
+	PointerType *begin() const { return this->m_target; }
+
+	/// \brief Get iterator beyond last element
+	///
+	/// Returns an iterator one past the last element of the memory
+	/// share.
+	/// \return Iterator one past last element.
+	PointerType *end() const { return this->m_target + length(); }
+
+	/// \brief Get constant iterator to first element
+	///
+	/// Returns a constant iterator to the first element of the memory
+	/// share.
+	/// \return Constant iterator to first element.
+	PointerType const *cbegin() const { return this->m_target; }
+
+	/// \brief Get constant iterator beyond last element
+	///
+	/// Returns a constant iterator one past the last element of the
+	/// memory share.
+	/// \return Constant iterator one past last element.
+	PointerType const *cend() const { return this->m_target + length(); }
+
 private:
 	/// \brief Find memory share base pointer
 	///
@@ -1315,6 +1338,34 @@ public:
 	/// Must not be called before creation is attempted.
 	/// \return Memory share width in bytes.
 	u8 bytewidth() const { return m_target->bytewidth(); }
+
+	/// \brief Get iterator to first element
+	///
+	/// Returns an iterator to the first element of the memory share.
+	/// Must not be called before creation is attempted.
+	/// \return Iterator to first element.
+	PointerType *begin() const { return target(); }
+
+	/// \brief Get iterator beyond last element
+	///
+	/// Returns an iterator one past the last element of the memory
+	/// share.  Must not be called before creation is attempted.
+	/// \return Iterator one past last element.
+	PointerType *end() const { return target() + length(); }
+
+	/// \brief Get constant iterator to first element
+	///
+	/// Returns a constant iterator to the first element of the memory
+	/// share.  Must not be called before creation is attempted.
+	/// \return Constant iterator to first element.
+	PointerType const *cbegin() const { return target(); }
+
+	/// \brief Get constant iterator beyond last element
+	///
+	/// Returns a constant iterator one past the last element of the
+	/// memory share.  Must not be called before creation is attempted.
+	/// \return Constant iterator one past last element.
+	PointerType const *cend() const { return target() + length(); }
 
 protected:
 	virtual bool findit(validity_checker *valid) override;

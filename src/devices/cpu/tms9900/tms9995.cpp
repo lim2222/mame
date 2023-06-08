@@ -124,30 +124,30 @@ enum
     Add the desired LOG aspect to the VERBOSE line
 ******************************************************************/
 
-#define LOG_OP         (1U<<1)   // Current instruction
-#define LOG_EXEC       (1U<<2)   // Address of current instruction
-#define LOG_CONFIG     (1U<<3)   // Configuration
-#define LOG_CYCLES     (1U<<4)   // Cycles
-#define LOG_WARN       (1U<<5)   // Illegal operation or other condition
-#define LOG_MEM        (1U<<6)   // Memory access
-#define LOG_CONTEXT    (1U<<7)   // Context switch
-#define LOG_INT        (1U<<8)   // Interrupts
-#define LOG_READY      (1U<<9)   // READY line input
-#define LOG_CLOCK      (1U<<10)  // Clock pulses
-#define LOG_ADDRESSBUS (1U<<11)  // Address bus operation
-#define LOG_STATUS     (1U<<12)  // Status register
-#define LOG_CRU        (1U<<13)  // CRU operations
-#define LOG_DEC        (1U<<14)  // Decrementer
-#define LOG_WAIT       (1U<<15)  // Wait states
-#define LOG_HOLD       (1U<<16)  // Hold states
-#define LOG_IDLE       (1U<<17)  // Idle states
-#define LOG_EMU        (1U<<18)  // Emulation details
-#define LOG_MICRO      (1U<<19)  // Microinstruction processing
-#define LOG_INTD       (1U<<20)  // Interrupts (detailed phases)
-#define LOG_DETAIL     (1U<<31)  // Increased detail
+#define LOG_OP         (1U << 1)   // Current instruction
+#define LOG_EXEC       (1U << 2)   // Address of current instruction
+#define LOG_CONFIG     (1U << 3)   // Configuration
+#define LOG_CYCLES     (1U << 4)   // Cycles
+#define LOG_WARN       (1U << 5)   // Illegal operation or other condition
+#define LOG_MEM        (1U << 6)   // Memory access
+#define LOG_CONTEXT    (1U << 7)   // Context switch
+#define LOG_INT        (1U << 8)   // Interrupts
+#define LOG_READY      (1U << 9)   // READY line input
+#define LOG_CLOCK      (1U << 10)  // Clock pulses
+#define LOG_ADDRESSBUS (1U << 11)  // Address bus operation
+#define LOG_STATUS     (1U << 12)  // Status register
+#define LOG_CRU        (1U << 13)  // CRU operations
+#define LOG_DEC        (1U << 14)  // Decrementer
+#define LOG_WAIT       (1U << 15)  // Wait states
+#define LOG_HOLD       (1U << 16)  // Hold states
+#define LOG_IDLE       (1U << 17)  // Idle states
+#define LOG_EMU        (1U << 18)  // Emulation details
+#define LOG_MICRO      (1U << 19)  // Microinstruction processing
+#define LOG_INTD       (1U << 20)  // Interrupts (detailed phases)
+#define LOG_DETAIL     (1U << 31)  // Increased detail
 
 // Minimum log should be config and warnings
-#define VERBOSE ( LOG_CONFIG | LOG_WARN )
+#define VERBOSE (LOG_CONFIG | LOG_WARN)
 
 #include "logmacro.h"
 
@@ -229,8 +229,8 @@ void tms9995_device::device_start()
 		// callexport = need to use the state_export method to read the state variable
 		state_add(i, s_statename[i], m_state_any).callimport().callexport().formatstr("%04X");
 	}
-	state_add(STATE_GENPC, "GENPC", PC_debug).formatstr("%4s").noshow();
-	state_add(STATE_GENPCBASE, "CURPC", PC_debug).formatstr("%4s").noshow();
+	state_add(STATE_GENPC, "GENPC", PC_debug).noshow();
+	state_add(STATE_GENPCBASE, "CURPC", PC_debug).noshow();
 	state_add(STATE_GENFLAGS, "status", m_state_any).callimport().callexport().formatstr("%16s").noshow();
 
 	// Set up the lookup table for command decoding
@@ -1954,8 +1954,10 @@ void tms9995_device::mem_write()
 			// will result in the data byte being written into the byte specifically addressed
 			// and random bits being written into the other byte of the decrementer."
 
-			// So we just don't care about the low byte.
-			if (m_address == 0xfffb) m_current_value >>= 8;
+			// Tests on a real 9995 show that both bytes have the same value
+			// after a byte operation
+			u16 decbyte = m_current_value & 0xff00;
+			m_current_value = decbyte | (decbyte >> 8);
 
 			// dito: "This also loads the Decrementing Register with the same count."
 			m_starting_count_storage_register = m_decrementer_value = m_current_value;
@@ -3252,7 +3254,7 @@ void tms9995_device::alu_single_arithm()
 		set_status_bit(ST_OV, src_val == 0x8000);
 		break;
 	case SWPB:
-		m_current_value = ((m_current_value << 8) | (m_current_value >> 8)) & 0xffff;
+		m_current_value = swapendian_int16(m_current_value);
 		// I don't know what they are doing right now, but we lose a lot of cycles
 		// according to the spec (which can indeed be proved on a real system)
 

@@ -9,14 +9,15 @@ SMSC FDC37C93x Plug and Play Compatible Ultra I/O Controller
 ***************************************************************************/
 
 #include "emu.h"
-#include "bus/isa/isa.h"
-#include "machine/ds128x.h"
 #include "machine/fdc37c93x.h"
 
-DEFINE_DEVICE_TYPE(FDC37C93X, fdc37c93x_device, "fdc37c93x", "SMSC FDC37C93X")
+#include "formats/naslite_dsk.h"
+#include "formats/pc_dsk.h"
 
-fdc37c93x_device::fdc37c93x_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, FDC37C93X, tag, owner, clock)
+DEFINE_DEVICE_TYPE(FDC37C93X, fdc37c93x_device, "fdc37c93x", "SMSC FDC37C93X Super I/O")
+
+fdc37c93x_device::fdc37c93x_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock)
+	: device_t(mconfig, type, tag, owner, clock)
 	, device_isa16_card_interface(mconfig, *this)
 	, mode(OperatingMode::Run)
 	, config_key_step(0)
@@ -68,6 +69,13 @@ fdc37c93x_device::fdc37c93x_device(const machine_config &mconfig, const char *ta
 		enabled_logical[n] = false;
 	for (int n = 0; n < 4; n++)
 		dreq_mapping[n] = -1;
+}
+
+fdc37c93x_device::fdc37c93x_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: fdc37c93x_device(mconfig, FDC37C93X, tag, owner, clock)
+{
+	m_device_id = 0x02;
+	m_device_rev = 0x01;
 }
 
 /*
@@ -255,13 +263,13 @@ void fdc37c93x_device::device_add_mconfig(machine_config &config)
 	pc_lpt_lptdev->irq_handler().set(FUNC(fdc37c93x_device::irq_parallel_w));
 
 	// serial ports
-	NS16450(config, pc_serial1_comdev, XTAL(1'843'200)); // or NS16550 ?
+	NS16550(config, pc_serial1_comdev, XTAL(1'843'200));
 	pc_serial1_comdev->out_int_callback().set(FUNC(fdc37c93x_device::irq_serial1_w));
 	pc_serial1_comdev->out_tx_callback().set(FUNC(fdc37c93x_device::txd_serial1_w));
 	pc_serial1_comdev->out_dtr_callback().set(FUNC(fdc37c93x_device::dtr_serial1_w));
 	pc_serial1_comdev->out_rts_callback().set(FUNC(fdc37c93x_device::rts_serial1_w));
 
-	NS16450(config, pc_serial2_comdev, XTAL(1'843'200));
+	NS16550(config, pc_serial2_comdev, XTAL(1'843'200));
 	pc_serial2_comdev->out_int_callback().set(FUNC(fdc37c93x_device::irq_serial2_w));
 	pc_serial2_comdev->out_tx_callback().set(FUNC(fdc37c93x_device::txd_serial2_w));
 	pc_serial2_comdev->out_dtr_callback().set(FUNC(fdc37c93x_device::dtr_serial2_w));
@@ -275,7 +283,9 @@ void fdc37c93x_device::device_add_mconfig(machine_config &config)
 	// keyboard
 	KBDC8042(config, m_kbdc);
 	m_kbdc->set_keyboard_type(kbdc8042_device::KBDC8042_PS2);
+	m_kbdc->set_interrupt_type(kbdc8042_device::KBDC8042_DOUBLE);
 	m_kbdc->input_buffer_full_callback().set(FUNC(fdc37c93x_device::irq_keyboard_w));
+	m_kbdc->input_buffer_full_mouse_callback().set(FUNC(fdc37c93x_device::irq_mouse_w));
 	m_kbdc->system_reset_callback().set(FUNC(fdc37c93x_device::kbdp20_gp20_reset_w));
 	m_kbdc->gate_a20_callback().set(FUNC(fdc37c93x_device::kbdp21_gp25_gatea20_w));
 }
@@ -421,6 +431,13 @@ WRITE_LINE_MEMBER(fdc37c93x_device::irq_keyboard_w)
 	request_irq(configuration_registers[LogicalDevice::Keyboard][0x70], state ? ASSERT_LINE : CLEAR_LINE);
 }
 
+WRITE_LINE_MEMBER(fdc37c93x_device::irq_mouse_w)
+{
+	if (enabled_logical[LogicalDevice::Keyboard] == false)
+		return;
+	request_irq(configuration_registers[LogicalDevice::Keyboard][0x72], state ? ASSERT_LINE : CLEAR_LINE);
+}
+
 WRITE_LINE_MEMBER(fdc37c93x_device::kbdp21_gp25_gatea20_w)
 {
 	if (enabled_logical[LogicalDevice::Keyboard] == false)
@@ -500,7 +517,6 @@ void fdc37c93x_device::write(offs_t offset, uint8_t data)
 
 /* Map/unmap internal devices */
 
-#if 1
 uint8_t fdc37c93x_device::disabled_read()
 {
 	return 0xff;
@@ -512,26 +528,14 @@ void fdc37c93x_device::disabled_write(uint8_t data)
 
 void fdc37c93x_device::unmap_fdc(address_map &map)
 {
-	map(0x0, 0x0).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
-	map(0x1, 0x1).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
+	//map(0x0, 0x0).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
+	//map(0x1, 0x1).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
 	map(0x2, 0x2).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
 	map(0x3, 0x3).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
 	map(0x4, 0x4).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
 	map(0x5, 0x5).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
 	map(0x7, 0x7).rw(FUNC(fdc37c93x_device::disabled_read), FUNC(fdc37c93x_device::disabled_write));
 }
-#else
-void fdc37c93x_device::unmap_fdc(address_map &map)
-{
-	map(0x0, 0x0).noprw();
-	map(0x1, 0x1).noprw();
-	map(0x2, 0x2).noprw();
-	map(0x3, 0x3).noprw();
-	map(0x4, 0x4).noprw();
-	map(0x5, 0x5).noprw();
-	map(0x7, 0x7).noprw();
-}
-#endif
 
 void fdc37c93x_device::map_fdc_addresses()
 {
@@ -773,6 +777,8 @@ void fdc37c93x_device::write_fdd_configuration_register(int index, int data)
 	}
 	if (index == 0x74)
 		update_dreq_mapping(configuration_registers[LogicalDevice::FDC][0x74], LogicalDevice::FDC);
+	if (index == 0xF0)
+		logerror("FDD Mode Register changed: Floppy Mode %d FDC DMA Mode %d Interface Mode %d Swap Drives %d\n", (data >> 0) & 1, (data >> 1) & 1, (data >> 2) & 3, (data >> 4) & 1);
 }
 
 void fdc37c93x_device::write_parallel_configuration_register(int index, int data)
@@ -903,10 +909,10 @@ uint16_t fdc37c93x_device::read_global_configuration_register(int index)
 		ret = logical_device;
 		break;
 	case 0x20:
-		ret = 2;
+		ret = m_device_id;
 		break;
 	case 0x21:
-		ret = 1;
+		ret = m_device_rev;
 		break;
 	}
 	logerror("Read global configuration register %02X = %02X\n", index, ret);
@@ -991,4 +997,15 @@ void fdc37c93x_device::device_start()
 
 void fdc37c93x_device::device_reset()
 {
+}
+
+// 'M707 is mostly same except no IDE ports and extra power management regs
+DEFINE_DEVICE_TYPE(FDC37M707, fdc37m707_device, "fdc37m707", "SMSC FDC37M707 Super I/O")
+
+
+fdc37m707_device::fdc37m707_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: fdc37c93x_device(mconfig, FDC37M707, tag, owner, clock)
+{
+	m_device_id = 0x42;
+	m_device_rev = 0x01;
 }

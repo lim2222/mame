@@ -2,7 +2,7 @@
 // copyright-holders:Karl Stenerud
 
 #include "emu.h"
-#include "m68000.h"
+#include "m68kmusashi.h"
 
 static constexpr int FPCC_N          = 0x08000000;
 static constexpr int FPCC_Z          = 0x04000000;
@@ -19,7 +19,7 @@ static constexpr u64 DOUBLE_MANTISSA                 = 0x000fffffffffffffU;
 #endif
 
 // masks for packed dwords, positive k-factor
-const u32 m68000_base_device::pkmask2[18] =
+const u32 m68000_musashi_device::pkmask2[18] =
 {
 	0xffffffff, 0, 0xf0000000, 0xff000000, 0xfff00000, 0xffff0000,
 	0xfffff000, 0xffffff00, 0xfffffff0, 0xffffffff,
@@ -27,14 +27,14 @@ const u32 m68000_base_device::pkmask2[18] =
 	0xffffffff, 0xffffffff, 0xffffffff
 };
 
-const u32 m68000_base_device::pkmask3[18] =
+const u32 m68000_musashi_device::pkmask3[18] =
 {
 	0xffffffff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0xf0000000, 0xff000000, 0xfff00000, 0xffff0000,
 	0xfffff000, 0xffffff00, 0xfffffff0, 0xffffffff,
 };
 
-inline floatx80 m68000_base_device::load_extended_float80(u32 ea)
+inline floatx80 m68000_musashi_device::load_extended_float80(u32 ea)
 {
 	u32 d1,d2;
 	u16 d3;
@@ -50,7 +50,7 @@ inline floatx80 m68000_base_device::load_extended_float80(u32 ea)
 	return fp;
 }
 
-inline void m68000_base_device::store_extended_float80(u32 ea, floatx80 fpr)
+inline void m68000_musashi_device::store_extended_float80(u32 ea, floatx80 fpr)
 {
 	m68ki_write_16(ea+0, fpr.high);
 	m68ki_write_16(ea+2, 0);
@@ -58,7 +58,7 @@ inline void m68000_base_device::store_extended_float80(u32 ea, floatx80 fpr)
 	m68ki_write_32(ea+8, fpr.low&0xffffffff);
 }
 
-inline floatx80 m68000_base_device::load_pack_float80(u32 ea)
+inline floatx80 m68000_musashi_device::load_pack_float80(u32 ea)
 {
 	u32 dw1, dw2, dw3;
 	floatx80 result;
@@ -109,7 +109,7 @@ inline floatx80 m68000_base_device::load_pack_float80(u32 ea)
 	return result;
 }
 
-inline void m68000_base_device::store_pack_float80(u32 ea, int k, floatx80 fpr)
+inline void m68000_musashi_device::store_pack_float80(u32 ea, int k, floatx80 fpr)
 {
 	u32 dw1, dw2, dw3;
 	char str[128], *ch;
@@ -241,7 +241,54 @@ inline void m68000_base_device::store_pack_float80(u32 ea, int k, floatx80 fpr)
 	m68ki_write_32(ea+8, dw3);
 }
 
-inline void m68000_base_device::SET_CONDITION_CODES(floatx80 reg)
+inline floatx80 propagateFloatx80NaNOneArg(floatx80 a)
+{
+	if (floatx80_is_signaling_nan(a))
+		float_raise(float_flag_invalid);
+
+	a.low |= 0xC000000000000000U;
+
+	return a;
+}
+
+static void normalizeFloatx80Subnormal(uint64_t aSig, int32_t *zExpPtr, uint64_t *zSigPtr)
+{
+	int shiftCount = countLeadingZeros64(aSig);
+	*zSigPtr = aSig << shiftCount;
+	*zExpPtr = 1 - shiftCount;
+}
+
+inline floatx80 getman(floatx80 src)
+{
+	const flag sign = (src.high >> 15);
+	int32_t exp = (src.high & 0x7fff);
+	uint64_t signific = src.low;
+
+	if (exp == 0x7fff)
+	{
+		if ((uint64_t)(signific << 1))
+		{
+			return propagateFloatx80NaNOneArg(src);
+		}
+		else
+		{
+			return packFloatx80(0, 0xffff, 0xffffffffffffffffU);
+		}
+	}
+
+	if (exp == 0)
+	{
+		if (signific == 0)
+		{
+			return packFloatx80(sign, 0, 0);
+		}
+		normalizeFloatx80Subnormal(signific, &exp, &signific);
+	}
+
+	return packFloatx80(sign, 0x3fff, signific);
+}
+
+inline void m68000_musashi_device::SET_CONDITION_CODES(floatx80 reg)
 {
 //  u64 *regi;
 
@@ -274,7 +321,7 @@ inline void m68000_base_device::SET_CONDITION_CODES(floatx80 reg)
 	}
 }
 
-inline int m68000_base_device::TEST_CONDITION(int condition)
+inline int m68000_musashi_device::TEST_CONDITION(int condition)
 {
 	int n = (m_fpsr & FPCC_N) != 0;
 	int z = (m_fpsr & FPCC_Z) != 0;
@@ -336,7 +383,7 @@ inline int m68000_base_device::TEST_CONDITION(int condition)
 	return r;
 }
 
-u8 m68000_base_device::READ_EA_8(int ea)
+u8 m68000_musashi_device::READ_EA_8(int ea)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -346,6 +393,10 @@ u8 m68000_base_device::READ_EA_8(int ea)
 		case 0:     // Dn
 		{
 			return REG_D()[reg];
+		}
+		case 1: // An
+		{
+			return REG_A()[reg];
 		}
 		case 2:     // (An)
 		{
@@ -412,7 +463,7 @@ u8 m68000_base_device::READ_EA_8(int ea)
 	return 0;
 }
 
-u16 m68000_base_device::READ_EA_16(int ea)
+u16 m68000_musashi_device::READ_EA_16(int ea)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -422,6 +473,10 @@ u16 m68000_base_device::READ_EA_16(int ea)
 		case 0:     // Dn
 		{
 			return (u16)(REG_D()[reg]);
+		}
+		case 1:     // An
+		{
+			return (u16)REG_A()[reg];
 		}
 		case 2:     // (An)
 		{
@@ -489,7 +544,7 @@ u16 m68000_base_device::READ_EA_16(int ea)
 	return 0;
 }
 
-u32 m68000_base_device::READ_EA_32(int ea)
+u32 m68000_musashi_device::READ_EA_32(int ea)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -499,6 +554,10 @@ u32 m68000_base_device::READ_EA_32(int ea)
 		case 0:     // Dn
 		{
 			return REG_D()[reg];
+		}
+		case 1:     // An
+		{
+			return REG_A()[reg];
 		}
 		case 2:     // (An)
 		{
@@ -564,7 +623,7 @@ u32 m68000_base_device::READ_EA_32(int ea)
 	return 0;
 }
 
-u64 m68000_base_device::READ_EA_64(int ea)
+u64 m68000_musashi_device::READ_EA_64(int ea)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -650,7 +709,7 @@ u64 m68000_base_device::READ_EA_64(int ea)
 	return 0;
 }
 
-floatx80 m68000_base_device::READ_EA_FPE(int mode, int reg, uint32 di_mode_ea)
+floatx80 m68000_musashi_device::READ_EA_FPE(int mode, int reg, uint32 di_mode_ea)
 {
 	floatx80 fpr;
 
@@ -733,7 +792,7 @@ floatx80 m68000_base_device::READ_EA_FPE(int mode, int reg, uint32 di_mode_ea)
 	return fpr;
 }
 
-floatx80 m68000_base_device::READ_EA_PACK(int ea)
+floatx80 m68000_musashi_device::READ_EA_PACK(int ea)
 {
 	floatx80 fpr;
 	int mode = (ea >> 3) & 0x7;
@@ -752,6 +811,13 @@ floatx80 m68000_base_device::READ_EA_PACK(int ea)
 		{
 			u32 ea = REG_A()[reg];
 			REG_A()[reg] += 12;
+			fpr = load_pack_float80(ea);
+			break;
+		}
+
+		case 5:     // (d16,An)
+		{
+			u32 ea = REG_A()[reg] + MAKE_INT_16(m68ki_read_imm_16());
 			fpr = load_pack_float80(ea);
 			break;
 		}
@@ -780,7 +846,7 @@ floatx80 m68000_base_device::READ_EA_PACK(int ea)
 	return fpr;
 }
 
-void m68000_base_device::WRITE_EA_8(int ea, u8 data)
+void m68000_musashi_device::WRITE_EA_8(int ea, u8 data)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -848,7 +914,7 @@ void m68000_base_device::WRITE_EA_8(int ea, u8 data)
 	}
 }
 
-void m68000_base_device::WRITE_EA_16(int ea, u16 data)
+void m68000_musashi_device::WRITE_EA_16(int ea, u16 data)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -916,7 +982,7 @@ void m68000_base_device::WRITE_EA_16(int ea, u16 data)
 	}
 }
 
-void m68000_base_device::WRITE_EA_32(int ea, u32 data)
+void m68000_musashi_device::WRITE_EA_32(int ea, u32 data)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -995,7 +1061,7 @@ void m68000_base_device::WRITE_EA_32(int ea, u32 data)
 	}
 }
 
-void m68000_base_device::WRITE_EA_64(int ea, u64 data)
+void m68000_musashi_device::WRITE_EA_64(int ea, u64 data)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -1068,7 +1134,7 @@ void m68000_base_device::WRITE_EA_64(int ea, u64 data)
 	}
 }
 
-void m68000_base_device::WRITE_EA_FPE(int mode, int reg, floatx80 fpr, uint32 di_mode_ea)
+void m68000_musashi_device::WRITE_EA_FPE(int mode, int reg, floatx80 fpr, uint32 di_mode_ea)
 {
 	switch (mode)
 	{
@@ -1106,6 +1172,13 @@ void m68000_base_device::WRITE_EA_FPE(int mode, int reg, floatx80 fpr, uint32 di
 			break;
 		}
 
+		case 6: // (An) + (Xn) + d8
+		{
+			u32 ea = EA_AY_IX_32();
+			store_extended_float80(ea, fpr);
+			break;
+		}
+
 		case 7:
 		{
 			switch (reg)
@@ -1117,7 +1190,7 @@ void m68000_base_device::WRITE_EA_FPE(int mode, int reg, floatx80 fpr, uint32 di
 	}
 }
 
-void m68000_base_device::WRITE_EA_PACK(int ea, int k, floatx80 fpr)
+void m68000_musashi_device::WRITE_EA_PACK(int ea, int k, floatx80 fpr)
 {
 	int mode = (ea >> 3) & 0x7;
 	int reg = (ea & 0x7);
@@ -1161,13 +1234,13 @@ void m68000_base_device::WRITE_EA_PACK(int ea, int k, floatx80 fpr)
 	}
 }
 
-void m68000_base_device::fpgen_rm_reg(u16 w2)
+void m68000_musashi_device::fpgen_rm_reg(u16 w2)
 {
-	int ea = m_ir & 0x3f;
-	int rm = (w2 >> 14) & 0x1;
-	int src = (w2 >> 10) & 0x7;
-	int dst = (w2 >>  7) & 0x7;
-	int opmode = w2 & 0x7f;
+	const int ea = m_ir & 0x3f;
+	const int rm = (w2 >> 14) & 0x1;
+	const int src = (w2 >> 10) & 0x7;
+	const int dst = (w2 >>  7) & 0x7;
+	const int opmode = w2 & 0x7f;
 	floatx80 source;
 
 	// fmovecr #$f, fp0 f200 5c0f
@@ -1383,9 +1456,16 @@ void m68000_base_device::fpgen_rm_reg(u16 w2)
 		}
 		case 0x06:      // FLOGNP1
 		{
-			m_fpr[dst] = floatx80_flognp1 (source);
+			m_fpr[dst] = floatx80_flognp1(source);
 			SET_CONDITION_CODES(m_fpr[dst]);
 			m_icount -= 594; // for MC68881
+			break;
+		}
+		case 0x0a:      // FATAN
+		{
+			m_fpr[dst] = floatx80_fatan (source);
+			SET_CONDITION_CODES(m_fpr[dst]);
+			m_icount -= 426; // for MC68881
 			break;
 		}
 		case 0x0e:      // FSIN
@@ -1458,6 +1538,13 @@ void m68000_base_device::fpgen_rm_reg(u16 w2)
 			m_fpr[dst] = double_to_fx80((double)temp2);
 			SET_CONDITION_CODES(m_fpr[dst]);
 			m_icount -= 6;
+			break;
+		}
+		case 0x1f:      // FGETMAN
+		{
+			m_fpr[dst] = getman(source);
+			SET_CONDITION_CODES(m_fpr[dst]);
+			m_icount -= 31;
 			break;
 		}
 		case 0x60:      // FSDIVS
@@ -1534,6 +1621,24 @@ void m68000_base_device::fpgen_rm_reg(u16 w2)
 			m_icount -= 9;
 			break;
 		}
+		case 0x30:      // FSINCOS
+		case 0x31:
+		case 0x32:
+		case 0x33:
+		case 0x34:
+		case 0x35:
+		case 0x36:
+		case 0x37:
+		{
+			m_fpr[dst] = source;
+			floatx80_fsin(m_fpr[dst]);
+			SET_CONDITION_CODES(m_fpr[dst]);    // condition codes are set for the sine result
+
+			m_fpr[(w2 & 0x7)] = source;
+			floatx80_fcos(m_fpr[(w2 & 0x7)]);
+			m_icount -= 451;
+			break;
+		}
 		case 0x38:      // FCMP
 		{
 			floatx80 res;
@@ -1555,7 +1660,7 @@ void m68000_base_device::fpgen_rm_reg(u16 w2)
 	}
 }
 
-void m68000_base_device::fmove_reg_mem(u16 w2)
+void m68000_musashi_device::fmove_reg_mem(u16 w2)
 {
 	int ea = m_ir & 0x3f;
 	int src = (w2 >>  7) & 0x7;
@@ -1631,7 +1736,7 @@ void m68000_base_device::fmove_reg_mem(u16 w2)
 	m_icount -= 12;
 }
 
-void m68000_base_device::fmove_fpcr(u16 w2)
+void m68000_musashi_device::fmove_fpcr(u16 w2)
 {
 	int ea = m_ir & 0x3f;
 	int dir = (w2 >> 13) & 0x1;
@@ -1735,24 +1840,13 @@ void m68000_base_device::fmove_fpcr(u16 w2)
 	m_icount -= 10;
 }
 
-void m68000_base_device::fmovem(u16 w2)
+void m68000_musashi_device::fmovem(u16 w2)
 {
 	int i;
 	int ea = m_ir & 0x3f;
 	int dir = (w2 >> 13) & 0x1;
 	int mode = (w2 >> 11) & 0x3;
 	int reglist = w2 & 0xff;
-
-	u32 mem_addr = 0;
-	switch (ea >> 3)
-	{
-		case 5:     // (d16, An)
-			mem_addr= EA_AY_DI_32();
-			break;
-		case 6:     // (An) + (Xn) + d8
-			mem_addr= EA_AY_IX_32();
-			break;
-	}
 
 	if (dir)    // From FP regs to mem
 	{
@@ -1773,19 +1867,27 @@ void m68000_base_device::fmovem(u16 w2)
 				int di_mode = imode == 5;
 				uint32 di_mode_ea = di_mode ? (REG_A()[reg] + MAKE_INT_16(m68ki_read_imm_16())) : 0;
 
-				for (i=0; i < 8; i++)
+				if (reglist)
 				{
-					if (reglist & (1 << i))
+					for (i=0; i < 8; i++)
 					{
-						WRITE_EA_FPE(imode, reg, m_fpr[i], di_mode_ea);
-						if (di_mode)
+						if (reglist & (1 << i))
 						{
-							di_mode_ea += 12;
-						}
+							WRITE_EA_FPE(imode, reg, m_fpr[i], di_mode_ea);
+							if (di_mode)
+							{
+								di_mode_ea += 12;
+							}
 
-						m_icount -= 2;
+							m_icount -= 2;
+						}
 					}
 				}
+				else if (imode == 6)
+					// advance PC if the register list is empty
+					EA_AY_IX_32();
+				else if (imode == 7)
+					fatalerror("m68881: fmovem addressing mode %d unimplemented at 0x%08x\n", imode, m_pc - 4);
 				break;
 			}
 
@@ -1797,23 +1899,30 @@ void m68000_base_device::fmovem(u16 w2)
 			{
 				int imode = (ea >> 3) & 0x7;
 				int reg = (ea & 0x7);
-				int di_mode = imode == 5;
-
+				int di_mode = (imode == 5);
 				uint32 di_mode_ea = di_mode ? (REG_A()[reg] + MAKE_INT_16(m68ki_read_imm_16())) : 0;
 
-				for (i=0; i < 8; i++)
+				if (reglist)
 				{
-					if (reglist & (1 << i))
+					for (i=0; i < 8; i++)
 					{
-						WRITE_EA_FPE(imode, reg, m_fpr[7 - i], di_mode_ea);
-						if (di_mode)
+						if (reglist & (1 << i))
 						{
-							di_mode_ea += 12;
-						}
+							WRITE_EA_FPE(imode, reg, m_fpr[7 - i], di_mode_ea);
+							if (di_mode)
+							{
+								di_mode_ea += 12;
+							}
 
-						m_icount -= 2;
+							m_icount -= 2;
+						}
 					}
 				}
+				else if (imode == 6)
+					// advance PC if the register list is empty
+					EA_AY_IX_32();
+				else if (imode == 7)
+					fatalerror("m68881: fmovem addressing mode %d unimplemented at 0x%08x\n", imode, m_pc - 4);
 				break;
 			}
 
@@ -1832,23 +1941,17 @@ void m68000_base_device::fmovem(u16 w2)
 			{
 				int imode = (ea >> 3) & 0x7;
 				int reg = (ea & 0x7);
-				int di_mode = imode == 5;
+				int di_mode = (imode == 5);
 				uint32 di_mode_ea = di_mode ? (REG_A()[reg] + MAKE_INT_16(m68ki_read_imm_16())) : 0;
 
 				for (i=0; i < 8; i++)
 				{
 					if (reglist & (1 << i))
 					{
-						switch (ea >> 3)
+						m_fpr[7 - i] = READ_EA_FPE(imode, reg, di_mode_ea);
+						if (di_mode)
 						{
-							case 5:     // (d16, An)
-							case 6:     // (An) + (Xn) + d8
-								m_fpr[7-i] = load_extended_float80(mem_addr);
-								mem_addr += 12;
-								break;
-							default:
-								m_fpr[7 - i] = READ_EA_FPE(imode, reg, di_mode_ea);
-								break;
+							di_mode_ea += 12;
 						}
 						m_icount -= 2;
 					}
@@ -1861,7 +1964,7 @@ void m68000_base_device::fmovem(u16 w2)
 	}
 }
 
-void m68000_base_device::fscc()
+void m68000_musashi_device::fscc()
 {
 	const int mode = (m_ir & 0x38) >> 3;
 	const int condition = OPER_I_16() & 0x3f;
@@ -1884,7 +1987,7 @@ void m68000_base_device::fscc()
 	m_icount -= 7; // ???
 }
 
-void m68000_base_device::fbcc16()
+void m68000_musashi_device::fbcc16()
 {
 	s32 offset;
 	int condition = m_ir & 0x3f;
@@ -1901,7 +2004,7 @@ void m68000_base_device::fbcc16()
 	m_icount -= 7;
 }
 
-void m68000_base_device::fbcc32()
+void m68000_musashi_device::fbcc32()
 {
 	s32 offset;
 	int condition = m_ir & 0x3f;
@@ -1919,7 +2022,7 @@ void m68000_base_device::fbcc32()
 }
 
 
-void m68000_base_device::m68040_fpu_op0()
+void m68000_musashi_device::m68040_fpu_op0()
 {
 	m_fpu_just_reset = 0;
 
@@ -1990,7 +2093,7 @@ void m68000_base_device::m68040_fpu_op0()
 	}
 }
 
-int m68000_base_device::perform_fsave(u32 addr, int inc)
+int m68000_musashi_device::perform_fsave(u32 addr, int inc)
 {
 	if(m_cpu_type & CPU_TYPE_040)
 	{
@@ -2032,7 +2135,7 @@ int m68000_base_device::perform_fsave(u32 addr, int inc)
 }
 
 // FRESTORE on a nullptr frame reboots the FPU - all registers to NaN, the 3 status regs to 0
-void m68000_base_device::do_frestore_null()
+void m68000_musashi_device::do_frestore_null()
 {
 	int i;
 
@@ -2050,7 +2153,7 @@ void m68000_base_device::do_frestore_null()
 	m_fpu_just_reset = 1;
 }
 
-void m68000_base_device::m68040_do_fsave(u32 addr, int reg, int inc)
+void m68000_musashi_device::m68040_do_fsave(u32 addr, int reg, int inc)
 {
 	if (m_fpu_just_reset)
 	{
@@ -2065,7 +2168,7 @@ void m68000_base_device::m68040_do_fsave(u32 addr, int reg, int inc)
 	}
 }
 
-void m68000_base_device::m68040_do_frestore(u32 addr, int reg)
+void m68000_musashi_device::m68040_do_frestore(u32 addr, int reg)
 {
 	bool m40 = m_cpu_type & CPU_TYPE_040;
 	u32 temp = m68ki_read_32(addr);
@@ -2103,7 +2206,7 @@ void m68000_base_device::m68040_do_frestore(u32 addr, int reg)
 	}
 }
 
-void m68000_base_device::m68040_fpu_op1()
+void m68000_musashi_device::m68040_fpu_op1()
 {
 	int ea = m_ir & 0x3f;
 	int mode = (ea >> 3) & 0x7;
@@ -2225,7 +2328,7 @@ void m68000_base_device::m68040_fpu_op1()
 	}
 }
 
-void m68000_base_device::m68881_ftrap()
+void m68000_musashi_device::m68881_ftrap()
 {
 	u16 w2  = OPER_I_16();
 

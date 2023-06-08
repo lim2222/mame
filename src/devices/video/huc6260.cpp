@@ -63,7 +63,7 @@ huc6260_device::huc6260_device(const machine_config &mconfig, const char *tag, d
 }
 
 
-void huc6260_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(huc6260_device::update_events)
 {
 	int vpos = screen().vpos();
 	int hpos = screen().hpos();
@@ -75,10 +75,9 @@ void huc6260_device::device_timer(emu_timer &timer, device_timer_id id, int para
 	{
 		if ( m_pixel_clock == 0 )
 		{
-			g_profiler.start( PROFILER_VIDEO );
+			auto profile = g_profiler.start(PROFILER_VIDEO);
 			/* Get next pixel information */
 			m_pixel_data = m_next_pixel_data_cb();
-			g_profiler.stop();
 		}
 
 		bitmap_line[ h ] = m_palette[ m_pixel_data ] | m_greyscales;
@@ -255,7 +254,7 @@ void huc6260_device::write(offs_t offset, uint8_t data)
 
 void huc6260_device::device_start()
 {
-	m_timer = timer_alloc();
+	m_timer = timer_alloc(FUNC(huc6260_device::update_events), this);
 	m_bmp = std::make_unique<bitmap_ind16>(WPF, LPF);
 
 	/* Resolve callbacks */

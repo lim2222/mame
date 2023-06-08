@@ -38,8 +38,8 @@ DEFINE_DEVICE_TYPE(I8156, i8156_device, "i8156", "Intel 8156 RAM, I/O & Timer")
 //  MACROS / CONSTANTS
 //**************************************************************************
 
-#define LOG_PORT (1U << 0)
-#define LOG_TIMER (1U << 1)
+#define LOG_PORT  (1U << 1)
+#define LOG_TIMER (1U << 2)
 #define VERBOSE (0)
 #include "logmacro.h"
 
@@ -321,8 +321,8 @@ void i8155_device::device_start()
 	m_ram = make_unique_clear<uint8_t[]>(256);
 
 	// allocate timers
-	m_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(i8155_device::timer_half_counted), this));
-	m_timer_tc = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(i8155_device::timer_tc), this));
+	m_timer = timer_alloc(FUNC(i8155_device::timer_half_counted), this);
+	m_timer_tc = timer_alloc(FUNC(i8155_device::timer_tc), this);
 
 	// register for state saving
 	save_item(NAME(m_io_m));

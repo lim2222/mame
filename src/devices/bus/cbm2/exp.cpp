@@ -63,7 +63,7 @@ device_cbm2_expansion_card_interface::~device_cbm2_expansion_card_interface()
 cbm2_expansion_slot_device::cbm2_expansion_slot_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, CBM2_EXPANSION_SLOT, tag, owner, clock),
 	device_single_card_slot_interface<device_cbm2_expansion_card_interface>(mconfig, *this),
-	device_image_interface(mconfig, *this),
+	device_cartrom_image_interface(mconfig, *this),
 	m_card(nullptr)
 {
 }
@@ -76,15 +76,6 @@ cbm2_expansion_slot_device::cbm2_expansion_slot_device(const machine_config &mco
 void cbm2_expansion_slot_device::device_start()
 {
 	m_card = get_card_device();
-
-	// inherit bus clock
-	// FIXME: this should be unnecessary as slots pass DERIVED_CLOCK(1, 1) through by default
-	if (clock() == 0)
-	{
-		cbm2_expansion_slot_device *root = machine().device<cbm2_expansion_slot_device>(CBM2_EXPANSION_SLOT_TAG);
-		assert(root);
-		set_unscaled_clock(root->clock());
-	}
 }
 
 
@@ -92,15 +83,13 @@ void cbm2_expansion_slot_device::device_start()
 //  call_load -
 //-------------------------------------------------
 
-image_init_result cbm2_expansion_slot_device::call_load()
+std::pair<std::error_condition, std::string> cbm2_expansion_slot_device::call_load()
 {
-	size_t size;
-
 	if (m_card)
 	{
 		if (!loaded_through_softlist())
 		{
-			size = length();
+			size_t const size = length();
 
 			if (is_filetype("20"))
 			{
@@ -126,7 +115,7 @@ image_init_result cbm2_expansion_slot_device::call_load()
 		}
 	}
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 

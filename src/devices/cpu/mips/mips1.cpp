@@ -14,10 +14,8 @@
 #include "emu.h"
 #include "mips1.h"
 #include "mips1dsm.h"
-#include "debugger.h"
 #include "softfloat3/source/include/softfloat.h"
 
-#define LOG_GENERAL (1U << 0)
 #define LOG_TLB     (1U << 1)
 #define LOG_IOP     (1U << 2)
 #define LOG_RISCOS  (1U << 3)
@@ -257,6 +255,15 @@ void mips1core_device_base::execute_run()
 			// check for interrupts
 			if ((CAUSE & SR & SR_IM) && (SR & SR_IEc))
 			{
+				// enable debugger interrupt breakpoints
+				for (int irqline = 0; irqline < 6; irqline++)
+				{
+					if (CAUSE & SR & (CAUSE_IPEX0 << irqline))
+					{
+						standard_irq_callback(irqline, m_pc);
+						break;
+					}
+				}
 				generate_exception(EXCEPTION_INTERRUPT);
 				return;
 			}
@@ -620,13 +627,7 @@ void mips1core_device_base::execute_run()
 void mips1core_device_base::execute_set_input(int irqline, int state)
 {
 	if (state != CLEAR_LINE)
-	{
 		CAUSE |= CAUSE_IPEX0 << irqline;
-
-		// enable debugger interrupt breakpoints
-		if ((SR & SR_IEc) && (SR & (SR_IMEX0 << irqline)))
-			standard_irq_callback(irqline);
-	}
 	else
 		CAUSE &= ~(CAUSE_IPEX0 << irqline);
 }
@@ -640,13 +641,21 @@ device_memory_interface::space_config_vector mips1core_device_base::memory_space
 	};
 }
 
-bool mips1core_device_base::memory_translate(int spacenum, int intention, offs_t &address)
+bool mips1core_device_base::memory_translate(int spacenum, int intention, offs_t &address, address_space *&target_space)
+{
+	target_space = &space(spacenum);
+	if (spacenum != AS_PROGRAM)
+		return true;
+	return translate(intention, address, true);
+}
+
+bool mips1core_device_base::translate(int intention, offs_t &address, bool debug)
 {
 	// check for kernel memory address
 	if (BIT(address, 31))
 	{
 		// check debug or kernel mode
-		if ((intention & TRANSLATE_DEBUG_MASK) || !(SR & SR_KUc))
+		if (debug || !(SR & SR_KUc))
 		{
 			switch (address & 0xe0000000)
 			{
@@ -871,13 +880,13 @@ void mips1core_device_base::generate_exception(u32 exception, bool refill)
 
 void mips1core_device_base::address_error(int intention, u32 const address)
 {
-	if (!machine().side_effects_disabled() && !(intention & TRANSLATE_DEBUG_MASK))
+	if (!machine().side_effects_disabled())
 	{
 		logerror("address_error 0x%08x (%s)\n", address, machine().describe_context());
 
 		m_cop0[COP0_BadVAddr] = address;
 
-		generate_exception((intention & TRANSLATE_WRITE) ? EXCEPTION_ADDRSTORE : EXCEPTION_ADDRLOAD);
+		generate_exception((intention == TR_WRITE) ? EXCEPTION_ADDRSTORE : EXCEPTION_ADDRLOAD);
 
 		// address errors shouldn't typically occur, so a breakpoint is handy
 		machine().debug_break();
@@ -1057,7 +1066,7 @@ void mips1core_device_base::lwl(u32 const op)
 	offs_t const offset = SIMMVAL + m_r[RSREG];
 	load<u32, false>(offset, [this, op, offset](u32 temp)
 	{
-		unsigned const shift = ((offset & 3) ^ ENDIAN_VALUE_LE_BE(m_endianness, 3, 0)) << 3;
+		unsigned const shift = ((offset & 3) ^ (m_endianness == ENDIANNESS_LITTLE ? 3 : 0)) << 3;
 
 		m_r[RTREG] = (m_r[RTREG] & ~u32(0xffffffffU << shift)) | (temp << shift);
 	});
@@ -1068,7 +1077,7 @@ void mips1core_device_base::lwr(u32 const op)
 	offs_t const offset = SIMMVAL + m_r[RSREG];
 	load<u32, false>(offset, [this, op, offset](u32 temp)
 	{
-		unsigned const shift = ((offset & 0x3) ^ ENDIAN_VALUE_LE_BE(m_endianness, 0, 3)) << 3;
+		unsigned const shift = ((offset & 0x3) ^ (m_endianness == ENDIANNESS_LITTLE ? 0 : 3)) << 3;
 
 		m_r[RTREG] = (m_r[RTREG] & ~u32(0xffffffffU >> shift)) | (temp >> shift);
 	});
@@ -1077,7 +1086,7 @@ void mips1core_device_base::lwr(u32 const op)
 void mips1core_device_base::swl(u32 const op)
 {
 	offs_t const offset = SIMMVAL + m_r[RSREG];
-	unsigned const shift = ((offset & 3) ^ ENDIAN_VALUE_LE_BE(m_endianness, 3, 0)) << 3;
+	unsigned const shift = ((offset & 3) ^ (m_endianness == ENDIANNESS_LITTLE ? 3 : 0)) << 3;
 
 	store<u32, false>(offset, m_r[RTREG] >> shift, 0xffffffffU >> shift);
 }
@@ -1085,7 +1094,7 @@ void mips1core_device_base::swl(u32 const op)
 void mips1core_device_base::swr(u32 const op)
 {
 	offs_t const offset = SIMMVAL + m_r[RSREG];
-	unsigned const shift = ((offset & 3) ^ ENDIAN_VALUE_LE_BE(m_endianness, 0, 3)) << 3;
+	unsigned const shift = ((offset & 3) ^ (m_endianness == ENDIANNESS_LITTLE ? 0 : 3)) << 3;
 
 	store<u32, false>(offset, m_r[RTREG] << shift, 0xffffffffU << shift);
 }
@@ -1095,11 +1104,11 @@ template <typename T, bool Aligned, typename U> std::enable_if_t<std::is_convert
 	// alignment error
 	if (Aligned && (address & (sizeof(T) - 1)))
 	{
-		address_error(TRANSLATE_READ, address);
+		address_error(TR_READ, address);
 		return;
 	}
 
-	if (memory_translate(m_data_spacenum, TRANSLATE_READ, address))
+	if (translate(TR_READ, address, false))
 	{
 		// align address for ld[lr] instructions
 		if (!Aligned)
@@ -1125,11 +1134,11 @@ template <typename T, bool Aligned, typename U> std::enable_if_t<std::is_convert
 	// alignment error
 	if (Aligned && (address & (sizeof(T) - 1)))
 	{
-		address_error(TRANSLATE_WRITE, address);
+		address_error(TR_WRITE, address);
 		return;
 	}
 
-	if (memory_translate(m_data_spacenum, TRANSLATE_WRITE, address))
+	if (translate(TR_WRITE, address, false))
 	{
 		// align address for sd[lr] instructions
 		if (!Aligned)
@@ -1149,13 +1158,13 @@ bool mips1core_device_base::fetch(u32 address, std::function<void(u32)> &&apply)
 	// alignment error
 	if (address & 3)
 	{
-		address_error(TRANSLATE_FETCH, address);
+		address_error(TR_FETCH, address);
 		return false;
 	}
 
-	if (memory_translate(0, TRANSLATE_FETCH, address))
+	if (translate(TR_FETCH, address, false))
 	{
-		u32 const data = space(0).read_dword(address);
+		u32 const data = space(AS_PROGRAM).read_dword(address);
 
 		if (m_bus_error)
 		{
@@ -1269,9 +1278,9 @@ void mips1_device_base::device_reset()
 	// initialize tlb mru index with identity mapping
 	for (unsigned i = 0; i < std::size(m_tlb); i++)
 	{
-		m_tlb_mru[TRANSLATE_READ][i] = i;
-		m_tlb_mru[TRANSLATE_WRITE][i] = i;
-		m_tlb_mru[TRANSLATE_FETCH][i] = i;
+		m_tlb_mru[TR_READ][i] = i;
+		m_tlb_mru[TR_WRITE][i] = i;
+		m_tlb_mru[TR_FETCH][i] = i;
 	}
 }
 
@@ -1943,13 +1952,13 @@ template <typename T> void mips1_device_base::set_cop1_reg(unsigned const reg, T
 		m_f[reg] = data;
 }
 
-bool mips1_device_base::memory_translate(int spacenum, int intention, offs_t &address)
+bool mips1_device_base::translate(int intention, offs_t &address, bool debug)
 {
 	// check for kernel memory address
 	if (BIT(address, 31))
 	{
 		// check debug or kernel mode
-		if ((intention & TRANSLATE_DEBUG_MASK) || !(SR & SR_KUc))
+		if (debug || !(SR & SR_KUc))
 		{
 			switch (address & 0xe0000000)
 			{
@@ -1974,7 +1983,7 @@ bool mips1_device_base::memory_translate(int spacenum, int intention, offs_t &ad
 	// key is a combination of VPN and ASID
 	u32 const key = (address & EH_VPN) | (m_cop0[COP0_EntryHi] & EH_ASID);
 
-	unsigned *mru = m_tlb_mru[intention & TRANSLATE_TYPE_MASK];
+	unsigned *mru = m_tlb_mru[intention];
 
 	bool refill = !BIT(address, 31);
 	bool modify = false;
@@ -1997,7 +2006,7 @@ bool mips1_device_base::memory_translate(int spacenum, int intention, offs_t &ad
 		}
 
 		// test dirty
-		if ((intention & TRANSLATE_WRITE) && !(entry[1] & EL_D))
+		if ((intention == TR_WRITE) && !(entry[1] & EL_D))
 		{
 			refill = false;
 			modify = true;
@@ -2015,7 +2024,7 @@ bool mips1_device_base::memory_translate(int spacenum, int intention, offs_t &ad
 		return true;
 	}
 
-	if (!machine().side_effects_disabled() && !(intention & TRANSLATE_DEBUG_MASK))
+	if (!machine().side_effects_disabled() && !debug)
 	{
 		if (VERBOSE & LOG_TLB)
 		{
@@ -2024,7 +2033,7 @@ bool mips1_device_base::memory_translate(int spacenum, int intention, offs_t &ad
 					(m_cop0[COP0_EntryHi] & EH_ASID) >> 6, address, machine().describe_context());
 			else
 				LOGMASKED(LOG_TLB, "asid %2d tlb miss %c address 0x%08x (%s)\n",
-					(m_cop0[COP0_EntryHi] & EH_ASID) >> 6, (intention & TRANSLATE_WRITE) ? 'w' : 'r', address, machine().describe_context());
+					(m_cop0[COP0_EntryHi] & EH_ASID) >> 6, (intention == TR_WRITE) ? 'w' : 'r', address, machine().describe_context());
 		}
 
 		// load tlb exception registers
@@ -2032,7 +2041,7 @@ bool mips1_device_base::memory_translate(int spacenum, int intention, offs_t &ad
 		m_cop0[COP0_EntryHi] = key;
 		m_cop0[COP0_Context] = (m_cop0[COP0_Context] & PTE_BASE) | ((address >> 10) & BAD_VPN);
 
-		generate_exception(modify ? EXCEPTION_TLBMOD : (intention & TRANSLATE_WRITE) ? EXCEPTION_TLBSTORE : EXCEPTION_TLBLOAD, refill);
+		generate_exception(modify ? EXCEPTION_TLBMOD : (intention == TR_WRITE) ? EXCEPTION_TLBSTORE : EXCEPTION_TLBLOAD, refill);
 	}
 
 	return false;

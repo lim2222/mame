@@ -1,3 +1,4 @@
+[![pipeline status](https://git.libretro.com/libretro/mame/badges/master/pipeline.svg)](https://git.libretro.com/libretro/mame/-/commits/master)
 # **Libretro notice** #
 
 Before sending bug reports to the upstream bug tracker, make sure the bugs are reproducible in the latest standalone release.
@@ -8,11 +9,35 @@ To build libretro MAME core from source you need to use `Makefile.libretro` make
 make -f Makefile.libretro
 ```
 
+
+For faster building after the initial makefile creation:
+
+```
+make -f Makefile.libretro PREMAKE=0
+```
+
+For Windows install `lld` for much faster linking.
+
 --------
 
 # **MAME** #
 
 [![Join the chat at https://gitter.im/mamedev/mame](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mamedev/mame?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+Continuous integration build status:
+
+| OS/Compiler                 | Status        |
+| --------------------------- |:-------------:|
+| Linux/clang and GCC         | ![CI (Linux)](https://github.com/mamedev/mame/workflows/CI%20(Linux)/badge.svg) |
+| Windows/MinGW GCC and clang | ![CI (Windows)](https://github.com/mamedev/mame/workflows/CI%20(Windows)/badge.svg) |
+| macOS/clang                 | ![CI (macOS)](https://github.com/mamedev/mame/workflows/CI%20(macOS)/badge.svg) |
+| UI Translations             | ![Compile UI translations](https://github.com/mamedev/mame/workflows/Compile%20UI%20translations/badge.svg) |
+| Documentation               | ![Build documentation](https://github.com/mamedev/mame/workflows/Build%20documentation/badge.svg) |
+| BGFX Shaders                | ![Rebuild BGFX shaders](https://github.com/mamedev/mame/workflows/Rebuild%20BGFX%20shaders/badge.svg) |
+
+Static analysis status for entire build (except for third-party parts of project):
+
+[![Coverity Scan Status](https://scan.coverity.com/projects/5727/badge.svg?flat=1)](https://scan.coverity.com/projects/mame-emulator)
 
 What is MAME?
 =============
@@ -24,33 +49,27 @@ MAME's purpose is to preserve decades of software history. As electronic technol
 How to compile?
 ===============
 
-If you're on a *NIX or OSX system, it could be as easy as typing
+If you're on a UNIX-like system (including Linux and macOS), it could be as easy as typing
 
 ```
 make
 ```
 
-for a MAME build,
+for a full build,
 
 ```
-make SUBTARGET=arcade
+make SUBTARGET=tiny
 ```
 
-for an arcade-only build, or
+for a build including a small subset of supported systems.
 
-```
-make SUBTARGET=mess
-```
+See the [Compiling MAME](http://docs.mamedev.org/initialsetup/compilingmame.html) page on our documentation site for more information, including prerequisites for macOS and popular Linux distributions.
 
-for MESS build.
+For recent versions of macOS you need to install [Xcode](https://developer.apple.com/xcode/) including command-line tools and [SDL 2.0](https://github.com/libsdl-org/SDL/releases/latest).
 
-See the [Compiling MAME](http://docs.mamedev.org/initialsetup/compilingmame.html) page on our documentation site for more information, including prerequisites for Mac OS X and popular Linux distributions.
+For Windows users, we provide a ready-made [build environment](http://www.mamedev.org/tools/) based on MinGW-w64.
 
-For recent versions of OSX you need to install [Xcode](https://developer.apple.com/xcode/) including command-line tools and [SDL 2.0](https://www.libsdl.org/download-2.0.php).
-
-For Windows users, we provide a ready-made [build environment](http://mamedev.org/tools/) based on MinGW-w64.
-
-Visual Studio builds are also possible, but you still need [build environment](http://mamedev.org/tools/) based on MinGW-w64.
+Visual Studio builds are also possible, but you still need [build environment](http://www.mamedev.org/tools/) based on MinGW-w64.
 In order to generate solution and project files just run:
 
 ```
@@ -66,9 +85,9 @@ make vs2019 MSBUILD=1
 Where can I find out more?
 =============
 
-* [Official MAME Development Team Site](http://mamedev.org/) (includes binary downloads, wiki, forums, and more)
+* [Official MAME Development Team Site](https://www.mamedev.org/) (includes binary downloads, wiki, forums, and more)
 * [Official MESS Wiki](http://mess.redump.net/)
-* [MAME Testers](http://mametesters.org/) (official bug tracker for MAME and MESS)
+* [MAME Testers](https://mametesters.org/) (official bug tracker for MAME and MESS)
 
 
 Contributing
@@ -82,8 +101,12 @@ Some parts of the code follow [Allman style](https://en.wikipedia.org/wiki/Inden
 
 All contributors need to either add a standard header for license info (on new files) or inform us of their wishes regarding which of the following licenses they would like their code to be made available under: the [BSD-3-Clause](http://opensource.org/licenses/BSD-3-Clause) license, the [LGPL-2.1](http://opensource.org/licenses/LGPL-2.1), or the [GPL-2.0](http://opensource.org/licenses/GPL-2.0).
 
+See more specific [C++ Coding Guidelines](https://docs.mamedev.org/contributing/cxx.html) on our documentation web site.
+
+
 License
 =======
+
 The MAME project as a whole is made available under the terms of the
 [GNU General Public License, version 2](http://opensource.org/licenses/GPL-2.0)
 or later (GPL-2.0+), since it contains code made available under multiple

@@ -67,7 +67,7 @@ device_plus4_expansion_card_interface::~device_plus4_expansion_card_interface()
 plus4_expansion_slot_device::plus4_expansion_slot_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
 	device_t(mconfig, PLUS4_EXPANSION_SLOT, tag, owner, clock),
 	device_single_card_slot_interface<device_plus4_expansion_card_interface>(mconfig, *this),
-	device_image_interface(mconfig, *this),
+	device_cartrom_image_interface(mconfig, *this),
 	m_write_irq(*this),
 	m_read_dma_cd(*this),
 	m_write_dma_cd(*this),
@@ -90,15 +90,6 @@ void plus4_expansion_slot_device::device_start()
 	m_read_dma_cd.resolve_safe(0xff);
 	m_write_dma_cd.resolve_safe();
 	m_write_aec.resolve_safe();
-
-	// inherit bus clock
-	// FIXME: this should be unnecessary as slots pass DERIVED_CLOCK(1, 1) through by default
-	if (clock() == 0)
-	{
-		plus4_expansion_slot_device *root = machine().device<plus4_expansion_slot_device>(PLUS4_EXPANSION_SLOT_TAG);
-		assert(root);
-		set_unscaled_clock(root->clock());
-	}
 }
 
 
@@ -106,13 +97,14 @@ void plus4_expansion_slot_device::device_start()
 //  call_load -
 //-------------------------------------------------
 
-image_init_result plus4_expansion_slot_device::call_load()
+std::pair<std::error_condition, std::string> plus4_expansion_slot_device::call_load()
 {
 	if (m_card)
 	{
 		if (!loaded_through_softlist())
 		{
 			// TODO
+			return std::make_pair(image_error::UNSUPPORTED, "Plus/4 Expansion software must be loaded from the software list");
 		}
 		else
 		{
@@ -126,14 +118,11 @@ image_init_result plus4_expansion_slot_device::call_load()
 			m_card->m_c2h_size = get_software_region_length("c2h");
 
 			if ((m_card->m_c1l_size & (m_card->m_c1l_size - 1)) || (m_card->m_c1h_size & (m_card->m_c1h_size - 1)) || (m_card->m_c2l_size & (m_card->m_c2l_size - 1)) || (m_card->m_c2h_size & (m_card->m_c2h_size - 1)))
-			{
-				seterror(IMAGE_ERROR_UNSPECIFIED, "ROM size must be power of 2");
-				return image_init_result::FAIL;
-			}
+				return std::make_pair(image_error::INVALIDLENGTH, "All ROM sizes must be powers of 2");
 		}
 	}
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 

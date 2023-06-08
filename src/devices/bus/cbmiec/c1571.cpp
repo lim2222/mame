@@ -599,7 +599,6 @@ void c1571_device::add_base_mconfig(machine_config &config)
 {
 	M6502(config, m_maincpu, 16_MHz_XTAL / 16);
 	m_maincpu->set_addrmap(AS_PROGRAM, &c1571_device::c1571_mem);
-	//config.set_perfect_quantum(m_maincpu); FIXME: not safe in a slot device - add barriers
 
 	MOS6522(config, m_via0, 16_MHz_XTAL / 16);
 	m_via0->readpa_handler().set(FUNC(c1571_device::via0_pa_r));
@@ -627,6 +626,7 @@ void c1571_device::add_base_mconfig(machine_config &config)
 	connector.set_default_option("525qd");
 	connector.set_fixed(true);
 	connector.set_formats(c1571_device::floppy_formats);
+	connector.enable_sound(true);
 }
 
 void c1571_device::add_cia_mconfig(machine_config &config)

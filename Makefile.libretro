@@ -2,16 +2,17 @@
 VERBOSE ?= 1
 RETRO ?= 1
 NOWERROR ?= 1
-CONFIG ?= libretro"
+CONFIG ?= libretro
 NO_USE_MIDI ?= 1
 NO_USE_PORTAUDIO ?= 1
 PTR64 ?= 1
 TARGET ?= mame
 # OS ?= linux
 # TARGETOS ?= linux
-PYTHON_EXECUTABLE ?= python
+PYTHON_EXECUTABLE ?= python3
 REGENIE ?= 1
 GITHUB_REPO ?= https://github.com/libretro/mame/
+DEBUG ?= 0
 
 ###########################################################################
 #
@@ -75,10 +76,10 @@ ifneq ($(PYTHON_EXECUTABLE),)
 endif
 ifeq ($(DEBUG),1)
 	BUILDFLAGS += CONFIG=libretrodbg
+	BUILDFLAGS += SYMBOLS=1 SYMLEVEL=1 OPTIMIZE=g
 else
 	BUILDFLAGS += CONFIG=libretro
 endif
-
 
 ###########################################################################
 #
@@ -103,6 +104,10 @@ ifneq ($(findstring win,$(platform)),)
 	CXX ?= cxx
 	AR  ?= ar
 	PLATFLAGS += TARGETOS="windows" OVERRIDE_CC="$(CC)" OVERRIDE_CXX="$(CXX)" "AR=$(AR)"
+	LLD := $(shell command -v lld 2> /dev/null)
+	ifneq ($(LLD),)
+		BUILDFLAGS += LDOPTS="-fuse-ld=lld"
+	endif
 	ifneq ($(WINDRES),)
 		PLATFLAGS += WINDRES="$(WINDRES)"
 	endif
@@ -154,6 +159,21 @@ endif
 
 ifeq ($(platform),osx)
   PLATFLAGS += DONT_USE_NETWORK=1
+
+   ifeq ($(CROSS_COMPILE),1)
+		LIBRETRO_CPU = arm64
+		LIBRETRO_OS = osx-arm64
+		ARCH = arm64
+		TARGET_RULE   = -arch $(ARCH) -target $(LIBRETRO_APPLE_PLATFORM) -isysroot $(LIBRETRO_APPLE_ISYSROOT)
+		CC = clang $(TARGET_RULE)
+		CXX = clang++ $(TARGET_RULE)
+		PLATFLAGS += OVERRIDE_CC="$(CC)" OVERRIDE_CXX="$(CXX)"
+		CFLAGS   += $(TARGET_RULE)
+		CPPFLAGS += $(TARGET_RULE)
+		CXXFLAGS += $(TARGET_RULE)
+		LDFLAGS  += $(TARGET_RULE)
+   endif
+
 endif
 
 ifeq ($(platform),ios-arm64)
@@ -162,8 +182,8 @@ ifeq ($(platform),ios-arm64)
 	ARCH = arm64
 	LIBRETRO_OS = ios-arm64
 	IOSSDK := $(shell xcodebuild -version -sdk iphoneos Path)
-	CC = cc -arch arm64 -isysroot $(IOSSDK) -miphoneos-version-min=11.0
-	CXX = c++ -arch arm64 -isysroot $(IOSSDK) -miphoneos-version-min=11.0
+	CC = cc -arch arm64 -isysroot $(IOSSDK) -miphoneos-version-min=12.0
+	CXX = c++ -arch arm64 -isysroot $(IOSSDK) -miphoneos-version-min=12.0
 	PLATFLAGS += OVERRIDE_CC="$(CC)" OVERRIDE_CXX="$(CXX)"
 endif
 

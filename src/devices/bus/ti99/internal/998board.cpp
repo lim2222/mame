@@ -107,32 +107,32 @@
 #include "998board.h"
 #include "cpu/tms9900/tms99com.h"
 
-#define LOG_DETAIL      (1U<<1)     // More detail
-#define LOG_CRU         (1U<<2)     // CRU logging
-#define LOG_ADDRESS     (1U<<3)     // Address bus
-#define LOG_MEM         (1U<<4)     // Memory access
-#define LOG_MAP         (1U<<5)     // Mapper
-#define LOG_READY       (1U<<6)     // READY line
-#define LOG_CLOCK       (1U<<7)     // CLKOUT
-#define LOG_MOFETTA     (1U<<8)     // Mofetta operation
-#define LOG_AMIGO       (1U<<9)     // Amigo operation
-#define LOG_OSO         (1U<<10)    // Oso operation
-#define LOG_HEXBUS      (1U<<11)    // Hexbus operation
-#define LOG_WS          (1U<<12)    // Wait states
-#define LOG_CPURY       (1U<<13)    // Combined ready line
-#define LOG_GROM        (1U<<14)    // GROM operation
-#define LOG_PUNMAP      (1U<<15)    // Unmapped physical addresss
-#define LOG_WARN        (1U<<31)    // Warnings
+#define LOG_DETAIL      (1U << 1)     // More detail
+#define LOG_CRU         (1U << 2)     // CRU logging
+#define LOG_ADDRESS     (1U << 3)     // Address bus
+#define LOG_MEM         (1U << 4)     // Memory access
+#define LOG_MAP         (1U << 5)     // Mapper
+#define LOG_READY       (1U << 6)     // READY line
+#define LOG_CLOCK       (1U << 7)     // CLKOUT
+#define LOG_MOFETTA     (1U << 8)     // Mofetta operation
+#define LOG_AMIGO       (1U << 9)     // Amigo operation
+#define LOG_OSO         (1U << 10)    // Oso operation
+#define LOG_HEXBUS      (1U << 11)    // Hexbus operation
+#define LOG_WS          (1U << 12)    // Wait states
+#define LOG_CPURY       (1U << 13)    // Combined ready line
+#define LOG_GROM        (1U << 14)    // GROM operation
+#define LOG_PUNMAP      (1U << 15)    // Unmapped physical addresss
+#define LOG_WARN        (1U << 31)    // Warnings
 
-#define VERBOSE ( LOG_WARN )
+#define VERBOSE (LOG_WARN)
 
 #include "logmacro.h"
 
-DEFINE_DEVICE_TYPE_NS(TI99_MAINBOARD8, bus::ti99::internal, mainboard8_device, "ti998_mainboard", "TI-99/8 Mainboard")
-DEFINE_DEVICE_TYPE_NS(TI99_VAQUERRO, bus::ti99::internal, vaquerro_device, "ti998_vaquerro", "TI-99/8 Logical Address Space Decoder")
-DEFINE_DEVICE_TYPE_NS(TI99_MOFETTA, bus::ti99::internal, mofetta_device, "ti998_mofetta", "TI-99/8 Physical Address Space Decoder")
-DEFINE_DEVICE_TYPE_NS(TI99_OSO, bus::ti99::internal, oso_device, "ti998_oso", "TI-99/8 Hexbus interface")
-DEFINE_DEVICE_TYPE_NS(TI99_AMIGO, bus::ti99::internal, amigo_device, "ti998_amigo", "TI-99/8 Address space mapper")
+DEFINE_DEVICE_TYPE(TI99_MAINBOARD8, bus::ti99::internal::mainboard8_device, "ti998_mainboard", "TI-99/8 Mainboard")
+DEFINE_DEVICE_TYPE(TI99_VAQUERRO, bus::ti99::internal::vaquerro_device, "ti998_vaquerro", "TI-99/8 Logical Address Space Decoder")
+DEFINE_DEVICE_TYPE(TI99_MOFETTA, bus::ti99::internal::mofetta_device, "ti998_mofetta", "TI-99/8 Physical Address Space Decoder")
+DEFINE_DEVICE_TYPE(TI99_OSO, bus::ti99::internal::oso_device, "ti998_oso", "TI-99/8 Hexbus interface")
+DEFINE_DEVICE_TYPE(TI99_AMIGO, bus::ti99::internal::amigo_device, "ti998_amigo", "TI-99/8 Address space mapper")
 
 namespace bus::ti99::internal {
 
@@ -189,6 +189,7 @@ mainboard8_device::mainboard8_device(const machine_config &mconfig, const char *
 	m_p3grom0(*owner, TI998_GLIB30_TAG),
 	m_p3grom1(*owner, TI998_GLIB31_TAG),
 	m_p3grom2(*owner, TI998_GLIB32_TAG),
+	m_tms9901(*owner, TI998_TMS9901_TAG),
 	m_sgrom_idle(true),
 	m_tsgrom_idle(true),
 	m_p8grom_idle(true),
@@ -382,6 +383,10 @@ void mainboard8_device::setaddress(offs_t offset, uint8_t busctrl)
 	// Save the logical address
 	m_logical_address = offset;
 	m_physical_address = 0;
+
+	// Trigger the 9901's clock if S0=1
+	if ((offset & 0x0020) != 0)
+		m_tms9901->update_clock();
 
 	// In TI's bit order, A14 is the second line from the right side (2^1)
 	m_A14_set = ((m_logical_address & 2)!=0); // Needed for clock_in

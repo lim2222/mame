@@ -79,8 +79,8 @@ gives a basic summary of command line options for MAME, as explained above.
     **mame.exe -showusage**
 
 gives you the (quite long) list of available command line options for MAME.
-The main options are described, in the :ref:`universal-command-line` section of
-this manual.
+The main options are described, in the :ref:`mame-commandline-universal` section
+of this manual.
 
 
     **mame.exe -showconfig**
@@ -88,9 +88,10 @@ this manual.
 gives you a (quite long) list of available configuration options for MAME.
 These optons can always be modified at command line, or by editing them in
 mame.ini which is the main configuration file for MAME. You can find a
-description of some configuration options in the :ref:`universal-command-line`
-section of the manual (in most cases, each configuration option has a
-corresponding command line option to configure and modify it).
+description of some configuration options in the
+:ref:`mame-commandline-universal` section of the manual (in most cases, each
+configuration option has a corresponding command line option to configure and
+modify it).
 
 
     **mame.exe -createconfig**
@@ -101,7 +102,7 @@ text editor (e.g. Notepad, Emacs or TextEdit) and configure every option you
 need. However, no particular tweaks are needed to start, so you can leave most
 of the options unaltered.
 
-If you execute **mame64 -createconfig** when you already have an existing
+If you execute **mame -createconfig** when you already have an existing
 mame.ini from a previous MAME version, MAME automatically updates the
 pre-existing mame.ini by copying changed options into it.
 

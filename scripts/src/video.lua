@@ -10,6 +10,8 @@
 ---------------------------------------------------------------------------
 
 files {
+	MAME_DIR .. "src/devices/video/cgapal.cpp",
+	MAME_DIR .. "src/devices/video/cgapal.h",
 	MAME_DIR .. "src/devices/video/poly.h",
 	MAME_DIR .. "src/devices/video/sprite.cpp",
 	MAME_DIR .. "src/devices/video/sprite.h",
@@ -50,6 +52,18 @@ if (VIDEOS["AM8052"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/video/am8052.cpp",
 		MAME_DIR .. "src/devices/video/am8052.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/atirage.h,VIDEOS["ATIRAGE"] = true
+--------------------------------------------------
+
+if (VIDEOS["ATIRAGE"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/atirage.cpp",
+		MAME_DIR .. "src/devices/video/atirage.h",
 	}
 end
 
@@ -593,6 +607,30 @@ end
 
 --------------------------------------------------
 --
+--@src/devices/video/k051316.h,VIDEOS["K051316"] = true
+--------------------------------------------------
+
+if (VIDEOS["K051316"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/k051316.cpp",
+		MAME_DIR .. "src/devices/video/k051316.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/k053936.h,VIDEOS["K053936"] = true
+--------------------------------------------------
+
+if (VIDEOS["K053936"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/k053936.cpp",
+		MAME_DIR .. "src/devices/video/k053936.h",
+	}
+end
+
+--------------------------------------------------
+--
 --@src/devices/video/lc7582.h,VIDEOS["LC7582"] = true
 --------------------------------------------------
 
@@ -660,6 +698,18 @@ if (VIDEOS["MB_VCU"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/video/mb_vcu.cpp",
 		MAME_DIR .. "src/devices/video/mb_vcu.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/mc68328lcd.h,VIDEOS["MC68328LCD"] = true
+--------------------------------------------------
+
+if (VIDEOS["MC68328LCD"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/mc68328lcd.cpp",
+		MAME_DIR .. "src/devices/video/mc68328lcd.h",
 	}
 end
 
@@ -747,11 +797,17 @@ if (VIDEOS["MOS6566"]~=null) then
 	}
 end
 
+--------------------------------------------------
+--
+--@src/devices/video/mos8563.h,VIDEOS["MOS8563"] = true
+--------------------------------------------------
 
-files {
-	MAME_DIR .. "src/devices/video/cgapal.cpp",
-	MAME_DIR .. "src/devices/video/cgapal.h",
-}
+if (VIDEOS["MOS8563"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/mos8563.cpp",
+		MAME_DIR .. "src/devices/video/mos8563.h",
+	}
+end
 
 --------------------------------------------------
 --
@@ -807,18 +863,6 @@ end
 
 --------------------------------------------------
 --
---@src/devices/video/polylgcy.h,VIDEOS["POLY"] = true
---------------------------------------------------
-
-if (VIDEOS["POLY"]~=null) then
-	files {
-		MAME_DIR .. "src/devices/video/polylgcy.cpp",
-		MAME_DIR .. "src/devices/video/polylgcy.h",
-	}
-end
-
---------------------------------------------------
---
 --@src/devices/video/psx.h,VIDEOS["PSX"] = true
 --------------------------------------------------
 
@@ -867,6 +911,18 @@ end
 
 --------------------------------------------------
 --
+--@src/devices/video/sn74s262.h,VIDEOS["SN74S262"] = true
+--------------------------------------------------
+
+if (VIDEOS["SN74S262"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/sn74s262.cpp",
+		MAME_DIR .. "src/devices/video/sn74s262.h",
+	}
+end
+
+--------------------------------------------------
+--
 --@src/devices/video/pwm.h,VIDEOS["PWM_DISPLAY"] = true
 --------------------------------------------------
 if (VIDEOS["PWM_DISPLAY"]~=null) then
@@ -906,6 +962,17 @@ if (VIDEOS["SED1356"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/video/sed1356.cpp",
 		MAME_DIR .. "src/devices/video/sed1356.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/sed1375.h,VIDEOS["SED1375"] = true
+--------------------------------------------------
+if (VIDEOS["SED1375"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/sed1375.cpp",
+		MAME_DIR .. "src/devices/video/sed1375.h",
 	}
 end
 
@@ -966,21 +1033,6 @@ end
 
 --------------------------------------------------
 --
---@src/devices/video/stvvdp1.h,VIDEOS["STVVDP"] = true
---@src/devices/video/stvvdp2.h,VIDEOS["STVVDP"] = true
---------------------------------------------------
-
-if (VIDEOS["STVVDP"]~=null) then
-	files {
-		MAME_DIR .. "src/devices/video/stvvdp1.cpp",
-		MAME_DIR .. "src/devices/video/stvvdp1.h",
-		MAME_DIR .. "src/devices/video/stvvdp2.cpp",
-		MAME_DIR .. "src/devices/video/stvvdp2.h",
-	}
-end
-
---------------------------------------------------
---
 --@src/devices/video/t6963c.h,VIDEOS["T6963C"] = true
 --------------------------------------------------
 
@@ -1024,6 +1076,18 @@ if (VIDEOS["TLC34076"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/video/tlc34076.cpp",
 		MAME_DIR .. "src/devices/video/tlc34076.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/tmap038.h,VIDEOS["TMAP038"] = true
+--------------------------------------------------
+
+if (VIDEOS["TMAP038"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/tmap038.cpp",
+		MAME_DIR .. "src/devices/video/tmap038.h",
 	}
 end
 
@@ -1156,8 +1220,13 @@ if (VIDEOS["VOODOO"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/video/voodoo.cpp",
 		MAME_DIR .. "src/devices/video/voodoo.h",
-		MAME_DIR .. "src/devices/video/vooddefs.ipp",
-		MAME_DIR .. "src/devices/video/voodoo_rast.ipp",
+		MAME_DIR .. "src/devices/video/voodoo_2.cpp",
+		MAME_DIR .. "src/devices/video/voodoo_2.h",
+		MAME_DIR .. "src/devices/video/voodoo_banshee.cpp",
+		MAME_DIR .. "src/devices/video/voodoo_banshee.h",
+		MAME_DIR .. "src/devices/video/voodoo_regs.h",
+		MAME_DIR .. "src/devices/video/voodoo_render.cpp",
+		MAME_DIR .. "src/devices/video/voodoo_render.h",
 	}
 end
 
@@ -1397,5 +1466,41 @@ if (VIDEOS["VRENDER0"]~=null) then
 	files {
 		MAME_DIR .. "src/devices/video/vrender0.cpp",
 		MAME_DIR .. "src/devices/video/vrender0.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/avgdvg.h,VIDEOS["AVGDVG"] = true
+--------------------------------------------------
+
+if (VIDEOS["AVGDVG"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/avgdvg.cpp",
+		MAME_DIR .. "src/devices/video/avgdvg.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/x1_001.h,VIDEOS["X1_001"] = true
+--------------------------------------------------
+
+if (VIDEOS["X1_001"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/x1_001.cpp",
+		MAME_DIR .. "src/devices/video/x1_001.h",
+	}
+end
+
+--------------------------------------------------
+--
+--@src/devices/video/zr36110.h,VIDEOS["ZR36110"] = true
+--------------------------------------------------
+
+if (VIDEOS["ZR36110"]~=null) then
+	files {
+		MAME_DIR .. "src/devices/video/zr36110.cpp",
+		MAME_DIR .. "src/devices/video/zr36110.h",
 	}
 end

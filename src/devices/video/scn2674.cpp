@@ -10,10 +10,10 @@
 
 #include "screen.h"
 
-#define LOG_IR      (1 << 0)
-#define LOG_COMMAND (1 << 1)
-#define LOG_INTR    (1 << 2)
-#define LOG_READ    (1 << 3)
+#define LOG_IR      (1U << 1)
+#define LOG_COMMAND (1U << 2)
+#define LOG_INTR    (1U << 3)
+#define LOG_READ    (1U << 4)
 #define VERBOSE     (0)
 #include "logmacro.h"
 
@@ -112,9 +112,9 @@ void scn2674_device::device_start()
 	m_mbc_cb.resolve_safe();
 	m_mbc_char_cb.resolve();
 	m_mbc_attr_cb.resolve();
-	m_scanline_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(scn2674_device::scanline_timer), this));
-	m_breq_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(scn2674_device::breq_timer), this));
-	m_vblank_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(scn2674_device::vblank_timer), this));
+	m_scanline_timer = timer_alloc(FUNC(scn2674_device::scanline_timer), this);
+	m_breq_timer = timer_alloc(FUNC(scn2674_device::breq_timer), this);
+	m_vblank_timer = timer_alloc(FUNC(scn2674_device::vblank_timer), this);
 	screen().register_screen_bitmap(m_bitmap);
 
 	m_char_space = &space(0);

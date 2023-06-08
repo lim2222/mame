@@ -9,7 +9,6 @@
 #include "emu.h"
 #include "i8257.h"
 
-//#define LOG_GENERAL (1U << 0) //defined in logmacro.h already
 #define LOG_SETUP     (1U << 1)
 #define LOG_TFR       (1U << 2)
 
@@ -428,7 +427,7 @@ void i8257_device::execute_run()
 			if (m_ready)
 			{
 				m_state = STATE_S4;
-				if (m_channel[m_current_channel].m_count == 0)
+				if ((m_channel[m_current_channel].m_count == 0) && (MODE_TRANSFER_MASK != MODE_TRANSFER_READ))
 					set_tc(1);
 			}
 			else
@@ -439,7 +438,7 @@ void i8257_device::execute_run()
 			if (m_ready)
 			{
 				m_state = STATE_S4;
-				if (m_channel[m_current_channel].m_count == 0)
+				if ((m_channel[m_current_channel].m_count == 0) && (MODE_TRANSFER_MASK != MODE_TRANSFER_READ))
 					set_tc(1);
 			}
 			break;
@@ -449,6 +448,8 @@ void i8257_device::execute_run()
 			{
 				dma_write();
 			}
+			if ((m_channel[m_current_channel].m_count == 0) && (MODE_TRANSFER_MASK == MODE_TRANSFER_READ))
+				set_tc(1);
 			advance();
 
 			if(m_hack && next_channel())
@@ -539,7 +540,7 @@ void i8257_device::write(offs_t offset, uint8_t data)
 		switch (offset & 0x01)
 		{
 		case REGISTER_ADDRESS:
-			LOGSETUP(" * Register Address <- %02x\n", data);
+			LOGSETUP(" * Channel %d Register Address <- %02x\n", channel, data);
 			if (m_msb)
 			{
 				m_channel[channel].m_address = (data << 8) | (m_channel[channel].m_address & 0xff);
@@ -555,7 +556,7 @@ void i8257_device::write(offs_t offset, uint8_t data)
 			break;
 
 		case REGISTER_WORD_COUNT:
-			LOGSETUP(" * Register Word Count <- %02x\n", data);
+			LOGSETUP(" * Channel %d Register Word Count <- %02x\n", channel, data);
 			if (m_msb)
 			{
 				m_channel[channel].m_count = ((data & 0x3f) << 8) | (m_channel[channel].m_count & 0xff);

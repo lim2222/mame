@@ -28,11 +28,10 @@ determines both the COP watchdog timeout and the real-time interrupt rate
  * Configurable logging
  ****************************************************************************/
 
-#define LOG_GENERAL (1U <<  0)
-#define LOG_INT     (1U <<  1)
-#define LOG_IOPORT  (1U <<  2)
-#define LOG_TIMER   (1U <<  3)
-#define LOG_COP     (1U <<  4)
+#define LOG_INT     (1U << 1)
+#define LOG_IOPORT  (1U << 2)
+#define LOG_TIMER   (1U << 3)
+#define LOG_COP     (1U << 4)
 
 //#define VERBOSE (LOG_GENERAL | LOG_INT | LOG_IOPORT | LOG_TIMER | LOG_COP)
 //#define LOG_OUTPUT_FUNC printf
@@ -347,7 +346,7 @@ u8 m68hc05_device::ocr_r(offs_t offset)
 
 void m68hc05_device::ocr_w(offs_t offset, u8 data)
 {
-	// writing ORCH inhibits compare until OCRL is written
+	// writing OCRH inhibits compare until OCRL is written
 	// writing OCRL after reading TCR with OCF set clears OCF
 
 	u8 const low(BIT(offset, 0));
@@ -605,11 +604,11 @@ void m68hc05_device::interrupt()
 			pushbyte<false>(m_cc);
 		}
 		SEI;
-		standard_irq_callback(0);
 
 		if (m_pending_interrupts & M68HC05_INT_IRQ)
 		{
 			LOGINT("servicing external interrupt\n");
+			standard_irq_callback(0, m_pc.w.l);
 			m_irq_latch = 0;
 			m_pending_interrupts &= ~M68HC05_INT_IRQ;
 			if (m_params.m_addr_width > 13)
@@ -620,6 +619,7 @@ void m68hc05_device::interrupt()
 		else if (m_pending_interrupts & M68HC05_INT_TIMER)
 		{
 			LOGINT("servicing timer interrupt\n");
+			standard_irq_callback(1, m_pc.w.l);
 			if (m_params.m_addr_width > 13)
 				rm16<true>(M68HC05_VECTOR_TIMER & m_params.m_vector_mask, m_pc);
 			else
@@ -646,7 +646,7 @@ void m68hc05_device::burn_cycles(unsigned count)
 	unsigned const ps_mask((1 << ps_opt) - 1);
 	unsigned const increments((count + (m_prescaler & ps_mask)) >> ps_opt);
 	u32 const new_counter(u32(m_counter) + increments);
-	bool const timer_rollover((0x010000 > m_counter) && (0x010000 <= new_counter));
+	bool const timer_rollover(0x010000 <= new_counter);
 	bool const output_compare_match((m_ocr > m_counter) && (m_ocr <= new_counter));
 	m_prescaler = (count + m_prescaler) & ps_mask;
 	m_counter = u16(new_counter);

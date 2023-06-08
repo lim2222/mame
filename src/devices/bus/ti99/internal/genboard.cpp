@@ -411,32 +411,32 @@
 ***************************************************************************/
 #include "emu.h"
 
-#define LOG_WARN     (1U<<1)
-#define LOG_DETAIL   (1U<<2)
-#define LOG_READ     (1U<<3)
-#define LOG_WRITE    (1U<<4)
-#define LOG_KEYBOARD (1U<<5)
-#define LOG_CLOCK    (1U<<6)
-#define LOG_READY    (1U<<7)
-#define LOG_SETTING  (1U<<8)
-#define LOG_CRU      (1U<<9)
-#define LOG_CRUKEY   (1U<<10)
-#define LOG_DECODE   (1U<<11)
-#define LOG_ADDRESS  (1U<<12)
-#define LOG_LINES    (1U<<13)
-#define LOG_WAIT     (1U<<14)
-#define LOG_GROM      (1U<<15)
-#define LOG_MAPPER    (1U<<16)
+#define LOG_WARN     (1U << 1)
+#define LOG_DETAIL   (1U << 2)
+#define LOG_READ     (1U << 3)
+#define LOG_WRITE    (1U << 4)
+#define LOG_KEYBOARD (1U << 5)
+#define LOG_CLOCK    (1U << 6)
+#define LOG_READY    (1U << 7)
+#define LOG_SETTING  (1U << 8)
+#define LOG_CRU      (1U << 9)
+#define LOG_CRUKEY   (1U << 10)
+#define LOG_DECODE   (1U << 11)
+#define LOG_ADDRESS  (1U << 12)
+#define LOG_LINES    (1U << 13)
+#define LOG_WAIT     (1U << 14)
+#define LOG_GROM     (1U << 15)
+#define LOG_MAPPER   (1U << 16)
 
 // Minimum log should be warnings
-#define VERBOSE ( LOG_GENERAL | LOG_WARN )
+#define VERBOSE (LOG_GENERAL | LOG_WARN)
 
 #include "genboard.h"
 #include "logmacro.h"
 
-DEFINE_DEVICE_TYPE_NS(GENEVE_GATE_ARRAY, bus::ti99::internal, geneve_gate_array_device, "geneve_gate_array", "Geneve Gate Array")
-DEFINE_DEVICE_TYPE_NS(GENMOD_DECODER,    bus::ti99::internal, genmod_decoder_device, "genmod_decoder", "GenMod decoder circuit")
-DEFINE_DEVICE_TYPE_NS(GENEVE_PAL,        bus::ti99::internal, geneve_pal_device, "geneve_pal", "Geneve PAL circuit")
+DEFINE_DEVICE_TYPE(GENEVE_GATE_ARRAY, bus::ti99::internal::geneve_gate_array_device, "geneve_gate_array", "Geneve Gate Array")
+DEFINE_DEVICE_TYPE(GENMOD_DECODER,    bus::ti99::internal::genmod_decoder_device, "genmod_decoder", "GenMod decoder circuit")
+DEFINE_DEVICE_TYPE(GENEVE_PAL,        bus::ti99::internal::geneve_pal_device, "geneve_pal", "Geneve PAL circuit")
 
 namespace bus::ti99::internal {
 
@@ -1372,7 +1372,11 @@ void geneve_pal_device::set_ready()
 			  (pin4_9 && m_pin17q && m_pin16q && m_pin15q) ||
 			  !m_pin19;
 
-	if (m_prev_ready != ready_line) LOGMASKED(LOG_WAIT, "READY = %d (%d %d %d %d, %d %d %d, %d %d)\n", ready_line, m_pin14d, m_pin15d, m_pin16d, m_pin17d, m_pin3, m_pin4, m_pin9, m_pin5, m_pin19 );   m_prev_ready = ready_line;
+	if (m_prev_ready != ready_line)
+	{
+		LOGMASKED(LOG_WAIT, "READY = %d (%d %d %d %d, %d %d %d, %d %d)\n", ready_line, m_pin14d, m_pin15d, m_pin16d, m_pin17d, m_pin3, m_pin4, m_pin9, m_pin5, m_pin19);
+		m_prev_ready = ready_line;
+	}
 	m_ready(ready_line);
 }
 

@@ -4,7 +4,7 @@
    GI SP0256 Narrator Speech Processor
    GI SPB640 Speech Buffer
 
-   By Joe Zbiciak. Ported to MESS by tim lindner.
+   By Joe Zbiciak. Ported to MAME by tim lindner.
 
    Unimplemented:
    - Microsequencer repeat count of zero
@@ -23,7 +23,6 @@
 #include "emu.h"
 #include "sp0256.h"
 
-#define LOG_GENERAL (1U << 0)
 #define LOG_FIFO    (1U << 1)
 
 //#define VERBOSE (LOG_GENERAL | LOG_FIFO)
@@ -106,7 +105,7 @@ void sp0256_device::device_start()
 	// TODO: because of this, check if the bitrev functions are even used anywhere else
 	// bitrevbuff(m_rom, 0, 0xffff);
 
-	m_lrq_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(sp0256_device::set_lrq_timer_proc),this));
+	m_lrq_timer = timer_alloc(FUNC(sp0256_device::set_lrq_timer_proc), this);
 
 	// save device variables
 	save_item(NAME(m_sby_line));

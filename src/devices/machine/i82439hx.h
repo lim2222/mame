@@ -15,7 +15,6 @@ public:
 	i82439hx_host_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, T &&cpu_tag, int ram_size)
 		: i82439hx_host_device(mconfig, tag, owner, clock)
 	{
-		set_ids_host(0x80861250, 0x03, 0x00000000);
 		set_cpu_tag(std::forward<T>(cpu_tag));
 		set_ram_size(ram_size);
 	}
@@ -27,6 +26,8 @@ public:
 	DECLARE_WRITE_LINE_MEMBER(smi_act_w);
 
 protected:
+	i82439hx_host_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);
+
 	virtual void device_start() override;
 	virtual void device_reset() override;
 
@@ -37,17 +38,27 @@ protected:
 
 	virtual void config_map(address_map &map) override;
 
+	virtual std::tuple<bool, bool> read_memory_holes();
+
 private:
 	int ram_size;
 	required_device<device_memory_interface> cpu;
 	std::vector<uint32_t> ram;
 
-	uint8_t pcon, cc, dramec, dramc, dramt;
+	uint8_t latency_timer, bist;
+	uint8_t acon, pcon, cc, dramec, dramc, dramt;
 	uint8_t pam[7], drb[8];
 	uint8_t drt, drat, smram, errcmd, errsts, errsyn;
 	int smiact_n;
 
 	virtual uint8_t header_type_r() override;
+	void status_w(offs_t offset, uint16_t data, uint16_t mem_mask);
+	virtual uint8_t latency_timer_r() override;
+	void latency_timer_w(uint8_t data);
+	virtual uint8_t bist_r() override;
+	void bist_w(uint8_t data);
+	uint8_t acon_r();
+	void acon_w(uint8_t data);
 	uint8_t pcon_r();
 	void pcon_w(uint8_t data);
 	uint8_t cc_r();

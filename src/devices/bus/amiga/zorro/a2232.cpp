@@ -11,7 +11,6 @@
 #include "emu.h"
 #include "a2232.h"
 
-#define LOG_GENERAL (1U << 0)
 #define LOG_DATA (1U << 1)
 //#define VERBOSE (LOG_GENERAL | LOG_DATA)
 #include "logmacro.h"
@@ -21,7 +20,7 @@
 //  DEVICE DEFINITIONS
 //**************************************************************************
 
-DEFINE_DEVICE_TYPE_NS(ZORRO_A2232, bus::amiga::zorro, a2232_device, "zorro_a2232", "CBM A2232 Serial Card")
+DEFINE_DEVICE_TYPE(ZORRO_A2232, bus::amiga::zorro::a2232_device, "zorro_a2232", "CBM A2232 Serial Card")
 
 
 namespace bus::amiga::zorro {

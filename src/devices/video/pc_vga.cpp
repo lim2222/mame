@@ -36,11 +36,11 @@
     ROM declarations:
 
     (oti 037 chip)
-    ROM_LOAD("oakvga.bin", 0xc0000, 0x8000, 0x318c5f43)
+    ROM_LOAD("oakvga.bin", 0xc0000, 0x8000, CRC(318c5f43) SHA1(2aeb6cf737fd87dfd08c9f5b5bc421fcdbab4ce9) )
     (tseng labs famous et4000 isa vga card (oem))
-    ROM_LOAD("et4000b.bin", 0xc0000, 0x8000, 0xa903540d)
+    ROM_LOAD("et4000b.bin", 0xc0000, 0x8000, CRC(a903540d) SHA1(unknown) )
     (tseng labs famous et4000 isa vga card)
-    ROM_LOAD("et4000.bin", 0xc0000, 0x8000, 0xf01e4be0)
+    ROM_LOAD("et4000.bin", 0xc0000, 0x8000, CRC(f01e4be0) SHA1(95d75ff41bcb765e50bd87a8da01835fd0aa01d5) )
 
 ***************************************************************************/
 
@@ -52,6 +52,20 @@
 
 #include "debugger.h"
 #include "screen.h"
+
+#define LOG_ACCESSES  (1U << 1)
+#define LOG_REGISTERS (1U << 2)
+#define LOG_8514      (1U << 3)
+#define LOG_UNIMPL    (1U << 4)
+#define LOG_WARNINGS  (1U << 5)
+#define LOG_INVALID   (1U << 6)
+#define LOG_COMMANDS  (1U << 7)
+#define LOG_ATI       (1U << 8)
+#define LOG_OAK       (1U << 9)
+#define LOG_MEM_READS (1U << 10)
+
+#define VERBOSE (LOG_GENERAL | LOG_8514 | LOG_ATI | LOG_OAK | LOG_INVALID | LOG_COMMANDS)
+#include "logmacro.h"
 
 
 /***************************************************************************
@@ -107,17 +121,6 @@ enum
 
 /***************************************************************************
 
-    Static declarations
-
-***************************************************************************/
-
-#define LOG_ACCESSES    0
-#define LOG_REGISTERS   0
-
-#define LOG_8514        1
-
-/***************************************************************************
-
     Generic VGA
 
 ***************************************************************************/
@@ -129,6 +132,8 @@ DEFINE_DEVICE_TYPE(GAMTOR_VGA, gamtor_vga_device, "gamtor_vga", "GAMTOR VGA")
 DEFINE_DEVICE_TYPE(ATI_VGA,    ati_vga_device,    "ati_vga",    "ATi VGA")
 DEFINE_DEVICE_TYPE(IBM8514A,   ibm8514a_device,   "ibm8514a",   "IBM 8514/A Video")
 DEFINE_DEVICE_TYPE(MACH8,      mach8_device,      "mach8",      "Mach8")
+DEFINE_DEVICE_TYPE(XGA_COPRO,  xga_copro_device,  "xga_copro",  "IBM XGA Coprocessor")
+DEFINE_DEVICE_TYPE(OTI111,     oak_oti111_vga_device,  "oti111_vga",  "Oak Technologies Spitfire 64111")
 
 vga_device::vga_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, type, tag, owner, clock)
@@ -202,8 +207,8 @@ mach8_device::mach8_device(const machine_config &mconfig, const char *tag, devic
 // zero everything, keep vtbls
 void vga_device::zero()
 {
-	memset(&vga.svga_intf, 0, sizeof(vga.svga_intf));
-	vga.memory.resize(0);
+	vga.svga_intf.seq_regcount = 0;
+	vga.svga_intf.crtc_regcount = 0;
 	memset(vga.pens, 0, sizeof(vga.pens));
 	vga.miscellaneous_output = 0;
 	vga.feature_control = 0;
@@ -244,8 +249,7 @@ void vga_device::device_start()
 {
 	zero();
 
-	int i;
-	for (i = 0; i < 0x100; i++)
+	for (int i = 0; i < 0x100; i++)
 		set_pen_color(i, 0, 0, 0);
 
 	// Avoid an infinite loop when displaying.  0 is not possible anyway.
@@ -256,11 +260,10 @@ void vga_device::device_start()
 	vga.read_dipswitch.set(nullptr); //read_dipswitch;
 	vga.svga_intf.seq_regcount = 0x05;
 	vga.svga_intf.crtc_regcount = 0x19;
-	vga.svga_intf.vram_size = 0x100000;
 
-	vga.memory.resize(vga.svga_intf.vram_size);
+	vga.memory = std::make_unique<uint8_t []>(vga.svga_intf.vram_size);
 	memset(&vga.memory[0], 0, vga.svga_intf.vram_size);
-	save_item(NAME(vga.memory));
+	save_pointer(NAME(vga.memory), vga.svga_intf.vram_size);
 	save_item(NAME(vga.pens));
 
 	save_item(NAME(vga.miscellaneous_output));
@@ -351,7 +354,7 @@ void vga_device::device_start()
 	save_item(NAME(vga.dac.color));
 	save_item(NAME(vga.dac.dirty));
 
-	m_vblank_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(vga_device::vblank_timer_cb),this));
+	m_vblank_timer = timer_alloc(FUNC(vga_device::vblank_timer_cb), this);
 }
 
 void svga_device::device_start()
@@ -532,6 +535,12 @@ void vga_device::vga_vh_ega(bitmap_rgb32 &bitmap,  const rectangle &cliprect)
 		for (int yi=0;yi<height;yi++)
 		{
 			uint32_t *const bitmapline = &bitmap.pix(line + yi);
+			// ibm_5150:batmanmv uses this on gameplay for both EGA and "VGA" modes
+			// NB: EGA mode in that game sets 663, should be 303 like the other mode
+			// causing no status bar to appear. This is a known btanb in how VGA
+			// handles EGA mode, cfr. https://www.os2museum.com/wp/fantasyland-on-vga/
+			if((line + yi) == (vga.crtc.line_compare & 0x3ff))
+				addr = 0;
 
 			for (int pos=addr, c=0, column=0; column<EGA_COLUMNS+1; column++, c+=8, pos=(pos+1)&0xffff)
 			{
@@ -705,7 +714,7 @@ void svga_device::svga_vh_rgb8(bitmap_rgb32 &bitmap, const rectangle &cliprect)
 //      line_length = vga.crtc.offset << 4;
 //  }
 
-	uint8_t start_shift = (!(vga.sequencer.data[4] & 0x08)) ? 2 : 0;
+	uint8_t start_shift = (!(vga.sequencer.data[4] & 0x08) || svga.ignore_chain4) ? 2 : 0;
 	for (int addr = VGA_START_ADDRESS << start_shift, line=0; line<LINES; line+=height, addr+=offset(), curr_addr+=offset())
 	{
 		for (int yi = 0;yi < height; yi++)
@@ -1025,6 +1034,7 @@ uint8_t svga_device::get_video_depth()
 uint32_t vga_device::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
 {
 	uint8_t cur_mode = pc_vga_choosevideomode();
+
 	switch(cur_mode)
 	{
 		case SCREEN_OFF:   bitmap.fill  (black_pen(), cliprect);break;
@@ -1356,7 +1366,7 @@ void vga_device::recompute_params_clock(int divisor, int xtal)
 void vga_device::recompute_params()
 {
 	if(vga.miscellaneous_output & 8)
-		logerror("Warning: VGA external clock latch selected\n");
+		LOGMASKED(LOG_WARNINGS, "Warning: VGA external clock latch selected\n");
 	else
 		recompute_params_clock(1, ((vga.miscellaneous_output & 0xc) ? XTAL(28'636'363) : XTAL(25'174'800)).value());
 }
@@ -1507,7 +1517,7 @@ void vga_device::crtc_reg_write(uint8_t index, uint8_t data)
 			vga.crtc.line_compare |= data & 0xff;
 			break;
 		default:
-			logerror("Unhandled CRTC reg w %02x %02x\n",index,data);
+			LOGMASKED(LOG_UNIMPL, "Unhandled CRTC reg w %02x %02x\n",index,data);
 			break;
 	}
 }
@@ -1618,13 +1628,10 @@ void vga_device::vga_crtc_w(offs_t offset, uint8_t data)
 			break;
 
 		case 5:
-			if (LOG_REGISTERS)
-			{
-				logerror("vga_crtc_w(): CRTC[0x%02X%s] = 0x%02X\n",
-					vga.crtc.index,
-					(vga.crtc.index < vga.svga_intf.crtc_regcount) ? "" : "?",
-					data);
-			}
+			LOGMASKED(LOG_REGISTERS, "vga_crtc_w(): CRTC[0x%02X%s] = 0x%02X\n",
+				vga.crtc.index,
+				(vga.crtc.index < vga.svga_intf.crtc_regcount) ? "" : "?",
+				data);
 
 			crtc_reg_write(vga.crtc.index,data);
 			//screen().update_partial(screen().vpos());
@@ -1698,6 +1705,12 @@ uint8_t vga_device::gc_reg_read(uint8_t index)
 	return res;
 }
 
+uint8_t vga_device::seq_reg_read(uint8_t index)
+{
+	LOGMASKED(LOG_UNIMPL, "Reading unmapped sequencer read register %02x (SVGA?)\n", index);
+	return 0;
+}
+
 uint8_t vga_device::port_03c0_r(offs_t offset)
 {
 	uint8_t data = 0xff;
@@ -1758,6 +1771,8 @@ uint8_t vga_device::port_03c0_r(offs_t offset)
 		case 5:
 			if (vga.sequencer.index < vga.svga_intf.seq_regcount)
 				data = vga.sequencer.data[vga.sequencer.index];
+			else
+				data = seq_reg_read(vga.sequencer.index);
 			break;
 
 		case 6:
@@ -1822,7 +1837,7 @@ uint8_t vga_device::port_03d0_r(offs_t offset)
 		data = vga_crtc_r(offset);
 	if(offset == 8)
 	{
-		logerror("VGA: 0x3d8 read %s\n", machine().describe_context());
+		LOG("VGA: 0x3d8 read %s\n", machine().describe_context());
 		data = 0; // TODO: PC-200 reads back CGA register here, everything else returns open bus OR CGA emulation of register 0x3d8
 	}
 
@@ -1831,8 +1846,7 @@ uint8_t vga_device::port_03d0_r(offs_t offset)
 
 void vga_device::port_03b0_w(offs_t offset, uint8_t data)
 {
-	if (LOG_ACCESSES)
-		logerror("vga_port_03b0_w(): port=0x%04x data=0x%02x\n", offset + 0x3b0, data);
+	LOGMASKED(LOG_ACCESSES, "vga_port_03b0_w(): port=0x%04x data=0x%02x\n", offset + 0x3b0, data);
 
 	if (CRTC_PORT_ADDR == 0x3b0)
 		vga_crtc_w(offset, data);
@@ -1906,8 +1920,7 @@ void vga_device::gc_reg_write(uint8_t index,uint8_t data)
 
 void vga_device::port_03c0_w(offs_t offset, uint8_t data)
 {
-	if (LOG_ACCESSES)
-		logerror("vga_port_03c0_w(): port=0x%04x data=0x%02x\n", offset + 0x3c0, data);
+	LOGMASKED(LOG_ACCESSES, "vga_port_03c0_w(): port=0x%04x data=0x%02x\n", offset + 0x3c0, data);
 
 	switch (offset) {
 	case 0:
@@ -1932,13 +1945,10 @@ void vga_device::port_03c0_w(offs_t offset, uint8_t data)
 		vga.sequencer.index = data;
 		break;
 	case 5:
-		if (LOG_REGISTERS)
-		{
-			logerror("vga_port_03c0_w(): SEQ[0x%02X%s] = 0x%02X\n",
-				vga.sequencer.index,
-				(vga.sequencer.index < vga.svga_intf.seq_regcount) ? "" : "?",
-				data);
-		}
+		LOGMASKED(LOG_REGISTERS, "vga_port_03c0_w(): SEQ[0x%02X%s] = 0x%02X\n",
+			vga.sequencer.index,
+			(vga.sequencer.index < vga.svga_intf.seq_regcount) ? "" : "?",
+			data);
 		if (vga.sequencer.index < vga.svga_intf.seq_regcount)
 		{
 			vga.sequencer.data[vga.sequencer.index] = data;
@@ -1994,8 +2004,7 @@ void vga_device::port_03c0_w(offs_t offset, uint8_t data)
 
 void vga_device::port_03d0_w(offs_t offset, uint8_t data)
 {
-	if (LOG_ACCESSES)
-		logerror("vga_port_03d0_w(): port=0x%04x data=0x%02x\n", offset + 0x3d0, data);
+	LOGMASKED(LOG_ACCESSES, "vga_port_03d0_w(): port=0x%04x data=0x%02x\n", offset + 0x3d0, data);
 
 	if (CRTC_PORT_ADDR == 0x3d0)
 		vga_crtc_w(offset, data);
@@ -2064,20 +2073,22 @@ uint8_t vga_device::mem_r(offs_t offset)
 
 		if (vga.gc.read_mode)
 		{
-			uint8_t byte,layer;
-			uint8_t fill_latch;
-			data=0;
+			// In Read Mode 1 latch is checked against this
+			// cfr. lombrall & intsocch where they RMW sprite-like objects
+			// and anything outside this formula goes transparent.
+			const u8 target_color = (vga.gc.color_compare & vga.gc.color_dont_care);
+			data = 0;
 
-			for(byte=0;byte<8;byte++)
+			for(u8 byte = 0; byte < 8; byte++)
 			{
-				fill_latch = 0;
-				for(layer=0;layer<4;layer++)
+				u8 fill_latch = 0;
+				for(u8 layer = 0; layer < 4; layer++)
 				{
 					if(vga.gc.latch[layer] & 1 << byte)
 						fill_latch |= 1 << layer;
 				}
 				fill_latch &= vga.gc.color_dont_care;
-				if(fill_latch == vga.gc.color_compare)
+				if(fill_latch == target_color)
 					data |= 1 << byte;
 			}
 		}
@@ -2766,14 +2777,14 @@ void s3_vga_device::s3_crtc_reg_write(uint8_t index, uint8_t data)
 				if(s3.reg_lock2 == 0xa5)
 				{
 					s3.strapping = (s3.strapping & 0xffffff00) | data;
-					logerror("CR36: Strapping data = %08x\n",s3.strapping);
+					LOG("CR36: Strapping data = %08x\n",s3.strapping);
 				}
 				break;
 			case 0x37:
 				if(s3.reg_lock2 == 0xa5)
 				{
 					s3.strapping = (s3.strapping & 0xffff00ff) | (data << 8);
-					logerror("CR37: Strapping data = %08x\n",s3.strapping);
+					LOG("CR37: Strapping data = %08x\n",s3.strapping);
 				}
 				break;
 			case 0x38:
@@ -3020,7 +3031,7 @@ bit    0  Vertical Total bit 10. Bit 10 of the Vertical Total register (3d4h
 				if(s3.reg_lock2 == 0xa5)
 				{
 					s3.strapping = (s3.strapping & 0xff00ffff) | (data << 16);
-					logerror("CR68: Strapping data = %08x\n",s3.strapping);
+					LOG("CR68: Strapping data = %08x\n",s3.strapping);
 				}
 				break;
 			case 0x69:
@@ -3036,11 +3047,11 @@ bit    0  Vertical Total bit 10. Bit 10 of the Vertical Total register (3d4h
 				if(s3.reg_lock2 == 0xa5)
 				{
 					s3.strapping = (s3.strapping & 0x00ffffff) | (data << 24);
-					logerror("CR6F: Strapping data = %08x\n",s3.strapping);
+					LOG("CR6F: Strapping data = %08x\n",s3.strapping);
 				}
 				break;
 			default:
-				if(LOG_8514) logerror("S3: 3D4 index %02x write %02x\n",index,data);
+				LOGMASKED(LOG_8514, "S3: 3D4 index %02x write %02x\n",index,data);
 				break;
 		}
 	}
@@ -3278,8 +3289,12 @@ void ibm8514a_device::ibm8514_write_fg(uint32_t offset)
 		src = ibm8514.fgcolour;
 		break;
 	case 0x0040:
-		src = ibm8514.pixel_xfer;
+	{
+		// Windows 95 in svga 8bpp mode wants this (start logo, moving icons around, games etc.)
+		u32 shift_values[4] = { 0, 8, 16, 24 };
+		src = (ibm8514.pixel_xfer >> shift_values[(ibm8514.curr_x - ibm8514.prev_x) & 3]) & 0xff;
 		break;
+	}
 	case 0x0060:
 		// video memory - presume the memory is sourced from the current X/Y co-ords
 		src = m_vga->mem_linear_r(((ibm8514.curr_y * IBM8514_LINE_LENGTH) + ibm8514.curr_x));
@@ -3497,7 +3512,7 @@ uint16_t ibm8514a_device::ibm8514_line_error_r()
 void ibm8514a_device::ibm8514_line_error_w(uint16_t data)
 {
 	ibm8514.line_errorterm = data;
-	if(LOG_8514) logerror("8514/A: Line Parameter/Error Term write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Line Parameter/Error Term write %04x\n",data);
 }
 
 /*
@@ -3525,7 +3540,7 @@ uint16_t ibm8514a_device::ibm8514_gpstatus_r()
 {
 	uint16_t ret = 0x0000;
 
-	//if(LOG_8514) logerror("S3: 9AE8 read\n");
+	//LOGMASKED(LOG_8514, "S3: 9AE8 read\n");
 	if(ibm8514.gpbusy == true)
 		ret |= 0x0200;
 	if(ibm8514.data_avail == true)
@@ -3677,7 +3692,7 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 	case 0x0000:  // NOP (for "Short Stroke Vectors")
 		ibm8514.state = IBM8514_IDLE;
 		ibm8514.gpbusy = false;
-		if(LOG_8514) logerror("8514/A: Command (%04x) - NOP (Short Stroke Vector)\n",ibm8514.current_cmd);
+		LOGMASKED(LOG_8514, "8514/A: Command (%04x) - NOP (Short Stroke Vector)\n",ibm8514.current_cmd);
 		break;
 	case 0x2000:  // Line
 		ibm8514.state = IBM8514_IDLE;
@@ -3688,12 +3703,12 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 			{
 				ibm8514.state = IBM8514_DRAWING_LINE;
 				ibm8514.data_avail = true;
-				if(LOG_8514) logerror("8514/A: Command (%04x) - Vector Line (WAIT) %i,%i \n",ibm8514.current_cmd,ibm8514.curr_x,ibm8514.curr_y);
+				LOGMASKED(LOG_8514, "8514/A: Command (%04x) - Vector Line (WAIT) %i,%i \n",ibm8514.current_cmd,ibm8514.curr_x,ibm8514.curr_y);
 			}
 			else
 			{
 				ibm8514_draw_vector(ibm8514.rect_width,(data & 0x00e0) >> 5,(data & 0010) ? true : false);
-				if(LOG_8514) logerror("8514/A: Command (%04x) - Vector Line - %i,%i \n",ibm8514.current_cmd,ibm8514.curr_x,ibm8514.curr_y);
+				LOGMASKED(LOG_8514, "8514/A: Command (%04x) - Vector Line - %i,%i \n",ibm8514.current_cmd,ibm8514.curr_x,ibm8514.curr_y);
 			}
 		}
 		else
@@ -3707,7 +3722,7 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 			int count = 0;
 			int16_t temp;
 
-			if(LOG_8514) logerror("8514/A: Command (%04x) - Line (Bresenham) - %i,%i  Axial %i, Diagonal %i, Error %i, Major Axis %i, Minor Axis %i\n",ibm8514.current_cmd,
+			LOGMASKED(LOG_8514, "8514/A: Command (%04x) - Line (Bresenham) - %i,%i  Axial %i, Diagonal %i, Error %i, Major Axis %i, Minor Axis %i\n",ibm8514.current_cmd,
 				ibm8514.curr_x,ibm8514.curr_y,ibm8514.line_axial_step,ibm8514.line_diagonal_step,ibm8514.line_errorterm,ibm8514.rect_width,ibm8514.rect_height);
 
 			if((data & 0x0040))
@@ -3739,12 +3754,12 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 			//ibm8514.gpbusy = true;  // DirectX 5 keeps waiting for the busy bit to be clear...
 			ibm8514.bus_size = (data & 0x0600) >> 9;
 			ibm8514.data_avail = true;
-			if(LOG_8514) logerror("8514/A: Command (%04x) - Rectangle Fill (WAIT) %i,%i Width: %i Height: %i Colour: %08x\n",ibm8514.current_cmd,ibm8514.curr_x,
+			LOGMASKED(LOG_8514, "8514/A: Command (%04x) - Rectangle Fill (WAIT) %i,%i Width: %i Height: %i Colour: %08x\n",ibm8514.current_cmd,ibm8514.curr_x,
 					ibm8514.curr_y,ibm8514.rect_width,ibm8514.rect_height,ibm8514.fgcolour);
 			break;
 		}
-		if(LOG_8514) logerror("8514/A: Command (%04x) - Rectangle Fill %i,%i Width: %i Height: %i Colour: %08x\n",ibm8514.current_cmd,ibm8514.curr_x,
-				ibm8514.curr_y,ibm8514.rect_width,ibm8514.rect_height,ibm8514.fgcolour);
+		LOGMASKED(LOG_8514, "8514/A: Command (%04x) - Rectangle Fill %i,%i Width: %i Height: %i Colour: %08x\n",ibm8514.current_cmd,ibm8514.curr_x,
+			ibm8514.curr_y,ibm8514.rect_width,ibm8514.rect_height,ibm8514.fgcolour);
 		off = 0;
 		off += (IBM8514_LINE_LENGTH * ibm8514.curr_y);
 		off += ibm8514.curr_x;
@@ -3793,8 +3808,8 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 		break;
 	case 0xc000:  // BitBLT
 		// TODO: a10cuba sets up blantantly invalid parameters here, CPU core bug maybe?
-		if(LOG_8514) logerror("8514/A: Command (%04x) - BitBLT from %i,%i to %i,%i  Width: %i  Height: %i\n",ibm8514.current_cmd,
-				ibm8514.curr_x,ibm8514.curr_y,ibm8514.dest_x,ibm8514.dest_y,ibm8514.rect_width,ibm8514.rect_height);
+		LOGMASKED(LOG_8514, "8514/A: Command (%04x) - BitBLT from %i,%i to %i,%i  Width: %i  Height: %i\n",ibm8514.current_cmd,
+			ibm8514.curr_x,ibm8514.curr_y,ibm8514.dest_x,ibm8514.dest_y,ibm8514.rect_width,ibm8514.rect_height);
 		off = 0;
 		off += (IBM8514_LINE_LENGTH * ibm8514.dest_y);
 		off += ibm8514.dest_x;
@@ -3870,8 +3885,8 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 		ibm8514.curr_y = ibm8514.prev_y;
 		break;
 	case 0xe000:  // Pattern Fill
-		if(LOG_8514) logerror("8514/A: Command (%04x) - Pattern Fill - source %i,%i  dest %i,%i  Width: %i Height: %i\n",ibm8514.current_cmd,
-				ibm8514.curr_x,ibm8514.curr_y,ibm8514.dest_x,ibm8514.dest_y,ibm8514.rect_width,ibm8514.rect_height);
+		LOGMASKED(LOG_8514, "8514/A: Command (%04x) - Pattern Fill - source %i,%i  dest %i,%i  Width: %i Height: %i\n",ibm8514.current_cmd,
+			ibm8514.curr_x,ibm8514.curr_y,ibm8514.dest_x,ibm8514.dest_y,ibm8514.rect_width,ibm8514.rect_height);
 		off = 0;
 		off += (IBM8514_LINE_LENGTH * ibm8514.dest_y);
 		off += ibm8514.dest_x;
@@ -3941,7 +3956,8 @@ void ibm8514a_device::ibm8514_cmd_w(uint16_t data)
 	default:
 		ibm8514.state = IBM8514_IDLE;
 		ibm8514.gpbusy = false;
-		if(LOG_8514) logerror("8514/A: Unknown command: %04x\n",data);
+		LOGMASKED(LOG_8514, "8514/A: Unknown command: %04x\n",data);
+		break;
 	}
 }
 
@@ -3966,7 +3982,7 @@ void ibm8514a_device::ibm8514_desty_w(uint16_t data)
 {
 	ibm8514.line_axial_step = data;
 	ibm8514.dest_y = data;
-	if(LOG_8514) logerror("8514/A: Line Axial Step / Destination Y write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Line Axial Step / Destination Y write %04x\n",data);
 }
 
 /*
@@ -3991,7 +4007,7 @@ void ibm8514a_device::ibm8514_destx_w(uint16_t data)
 {
 	ibm8514.line_diagonal_step = data;
 	ibm8514.dest_x = data;
-	if(LOG_8514) logerror("8514/A: Line Diagonal Step / Destination X write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Line Diagonal Step / Destination X write %04x\n",data);
 }
 
 /*
@@ -4143,7 +4159,7 @@ void ibm8514a_device::ibm8514_ssv_w(uint16_t data)
 		ibm8514_draw_ssv(data >> 8);
 		ibm8514_draw_ssv(data & 0xff);
 	}
-	if(LOG_8514) logerror("8514/A: Short Stroke Vector write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Short Stroke Vector write %04x\n",data);
 }
 
 void ibm8514a_device::ibm8514_wait_draw_vector()
@@ -4233,7 +4249,7 @@ uint16_t ibm8514a_device::ibm8514_width_r()
 void ibm8514a_device::ibm8514_width_w(uint16_t data)
 {
 	ibm8514.rect_width = data & 0x1fff;
-	if(LOG_8514) logerror("8514/A: Major Axis Pixel Count / Rectangle Width write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Major Axis Pixel Count / Rectangle Width write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_currentx_r()
@@ -4245,7 +4261,7 @@ void ibm8514a_device::ibm8514_currentx_w(uint16_t data)
 {
 	ibm8514.curr_x = data;
 	ibm8514.prev_x = data;
-	if(LOG_8514) logerror("8514/A: Current X set to %04x (%i)\n",data,ibm8514.curr_x);
+	LOGMASKED(LOG_8514, "8514/A: Current X set to %04x (%i)\n",data,ibm8514.curr_x);
 }
 
 uint16_t ibm8514a_device::ibm8514_currenty_r()
@@ -4257,7 +4273,7 @@ void ibm8514a_device::ibm8514_currenty_w(uint16_t data)
 {
 	ibm8514.curr_y = data;
 	ibm8514.prev_y = data;
-	if(LOG_8514) logerror("8514/A: Current Y set to %04x (%i)\n",data,ibm8514.curr_y);
+	LOGMASKED(LOG_8514, "8514/A: Current Y set to %04x (%i)\n",data,ibm8514.curr_y);
 }
 
 uint16_t ibm8514a_device::ibm8514_fgcolour_r()
@@ -4268,7 +4284,7 @@ uint16_t ibm8514a_device::ibm8514_fgcolour_r()
 void ibm8514a_device::ibm8514_fgcolour_w(uint16_t data)
 {
 	ibm8514.fgcolour = data;
-	if(LOG_8514) logerror("8514/A: Foreground Colour write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Foreground Colour write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_bgcolour_r()
@@ -4279,7 +4295,7 @@ uint16_t ibm8514a_device::ibm8514_bgcolour_r()
 void ibm8514a_device::ibm8514_bgcolour_w(uint16_t data)
 {
 	ibm8514.bgcolour = data;
-	if(LOG_8514) logerror("8514/A: Background Colour write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Background Colour write %04x\n",data);
 }
 
 /*
@@ -4301,7 +4317,7 @@ uint16_t ibm8514a_device::ibm8514_read_mask_r()
 void ibm8514a_device::ibm8514_read_mask_w(uint16_t data)
 {
 	ibm8514.read_mask = (ibm8514.read_mask & 0xffff0000) | data;
-	if(LOG_8514) logerror("8514/A: Read Mask (Low) write = %08x\n",ibm8514.read_mask);
+	LOGMASKED(LOG_8514, "8514/A: Read Mask (Low) write = %08x\n",ibm8514.read_mask);
 }
 
 /*
@@ -4322,7 +4338,7 @@ uint16_t ibm8514a_device::ibm8514_write_mask_r()
 void ibm8514a_device::ibm8514_write_mask_w(uint16_t data)
 {
 	ibm8514.write_mask = (ibm8514.write_mask & 0xffff0000) | data;
-	if(LOG_8514) logerror("8514/A: Write Mask (Low) write = %08x\n",ibm8514.write_mask);
+	LOGMASKED(LOG_8514, "8514/A: Write Mask (Low) write = %08x\n",ibm8514.write_mask);
 }
 
 uint16_t ibm8514a_device::ibm8514_multifunc_r()
@@ -4341,7 +4357,7 @@ uint16_t ibm8514a_device::ibm8514_multifunc_r()
 		return ibm8514.scissors_right;
 		// TODO: remaining functions
 	default:
-		if(LOG_8514) logerror("8514/A: Unimplemented multifunction register %i selected\n",ibm8514.multifunc_sel);
+		LOGMASKED(LOG_8514, "8514/A: Unimplemented multifunction register %i selected\n",ibm8514.multifunc_sel);
 		return 0xff;
 	}
 }
@@ -4358,7 +4374,7 @@ bit  0-10  (911/924) Rectangle Height. Height of BITBLT or rectangle command.
 */
 	case 0x0000:
 		ibm8514.rect_height = data & 0x0fff;
-		if(LOG_8514) logerror("8514/A: Minor Axis Pixel Count / Rectangle Height write %04x\n",data);
+		LOGMASKED(LOG_8514, "8514/A: Minor Axis Pixel Count / Rectangle Height write %04x\n",data);
 		break;
 /*
 BEE8h index 01h W(R/W):  Top Scissors Register (SCISSORS_T).
@@ -4383,19 +4399,19 @@ bit  0-10  (911,924) Clipping Right Limit. Defines the right bound of the
  */
 	case 0x1000:
 		ibm8514.scissors_top = data & 0x0fff;
-		if(LOG_8514) logerror("S3: Scissors Top write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Scissors Top write %04x\n",data);
 		break;
 	case 0x2000:
 		ibm8514.scissors_left = data & 0x0fff;
-		if(LOG_8514) logerror("S3: Scissors Left write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Scissors Left write %04x\n",data);
 		break;
 	case 0x3000:
 		ibm8514.scissors_bottom = data & 0x0fff;
-		if(LOG_8514) logerror("S3: Scissors Bottom write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Scissors Bottom write %04x\n",data);
 		break;
 	case 0x4000:
 		ibm8514.scissors_right = data & 0x0fff;
-		if(LOG_8514) logerror("S3: Scissors Right write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Scissors Right write %04x\n",data);
 		break;
 /*
 BEE8h index 0Ah W(R/W):  Pixel Control Register (PIX_CNTL).
@@ -4409,11 +4425,11 @@ BIT     2  (911-928) Pack Data. If set image read data is a monochrome bitmap,
  */
 	case 0xa000:
 		ibm8514.pixel_control = data;
-		if(LOG_8514) logerror("S3: Pixel control write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Pixel control write %04x\n",data);
 		break;
 	case 0xe000:
 		ibm8514.multifunc_misc = data;
-		if(LOG_8514) logerror("S3: Multifunction Miscellaneous write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Multifunction Miscellaneous write %04x\n",data);
 		break;
 /*
 BEE8h index 0Fh W(W):  Read Register Select Register (READ_SEL)    (801/5,928)
@@ -4435,10 +4451,11 @@ bit   0-2  (911-928) READ-REG-SEL. Read Register Select. Selects the register
  */
 	case 0xf000:
 		ibm8514.multifunc_sel = data & 0x000f;
-		if(LOG_8514) logerror("S3: Multifunction select write %04x\n",data);
+		LOGMASKED(LOG_8514, "S3: Multifunction select write %04x\n",data);
 		break;
 	default:
-		if(LOG_8514) logerror("S3: Unimplemented multifunction register %i write %03x\n",data >> 12,data & 0x0fff);
+		LOGMASKED(LOG_8514, "S3: Unimplemented multifunction register %i write %03x\n",data >> 12,data & 0x0fff);
+		break;
 	}
 }
 
@@ -4634,7 +4651,7 @@ uint16_t ibm8514a_device::ibm8514_backmix_r()
 void ibm8514a_device::ibm8514_backmix_w(uint16_t data)
 {
 	ibm8514.bgmix = data;
-	if(LOG_8514) logerror("8514/A: BG Mix write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: BG Mix write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_foremix_r()
@@ -4645,7 +4662,7 @@ uint16_t ibm8514a_device::ibm8514_foremix_r()
 void ibm8514a_device::ibm8514_foremix_w(uint16_t data)
 {
 	ibm8514.fgmix = data;
-	if(LOG_8514) logerror("8514/A: FG Mix write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: FG Mix write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_pixel_xfer_r(offs_t offset)
@@ -4672,7 +4689,7 @@ void ibm8514a_device::ibm8514_pixel_xfer_w(offs_t offset, uint16_t data)
 	if(ibm8514.state == IBM8514_DRAWING_LINE)
 		ibm8514_wait_draw_vector();
 
-	if(LOG_8514) logerror("8514/A: Pixel Transfer = %08x\n",ibm8514.pixel_xfer);
+	LOGMASKED(LOG_8514, "8514/A: Pixel Transfer = %08x\n",ibm8514.pixel_xfer);
 }
 
 uint8_t s3_vga_device::mem_r(offs_t offset)
@@ -4943,7 +4960,8 @@ void s3_vga_device::mem_w(offs_t offset, uint8_t data)
 			dev->ibm8514_wait_draw();
 			break;
 		default:
-			if(LOG_8514) logerror("S3: MMIO offset %05x write %02x\n",offset+0xa0000,data);
+			LOGMASKED(LOG_8514, "S3: MMIO offset %05x write %02x\n",offset+0xa0000,data);
+			break;
 		}
 		return;
 	}
@@ -4979,18 +4997,27 @@ void s3_vga_device::mem_w(offs_t offset, uint8_t data)
 
 /******************************************
 
-gamtor.c implementation (TODO: identify the video card)
+gamtor.cpp implementation
 
 ******************************************/
 
-uint8_t gamtor_vga_device::mem_r(offs_t offset)
+// TODO: Chips & Technologies 65550 with swapped address lines? Move to separate file regardless
+// 65550 is used by Apple PowerBook 2400c
+// 65535 is used by IBM PC-110
+
+uint8_t gamtor_vga_device::mem_linear_r(offs_t offset)
 {
+	if (!machine().side_effects_disabled())
+		LOGMASKED(LOG_MEM_READS, "Reading gamtor SVGA memory %08x\n", offset);
 	return vga.memory[offset];
 }
 
-void gamtor_vga_device::mem_w(offs_t offset, uint8_t data)
+void gamtor_vga_device::mem_linear_w(offs_t offset, uint8_t data)
 {
-	vga.memory[offset] = data;
+	if (offset & 2)
+		vga.memory[(offset >> 2) + 0x20000] = data;
+	else
+		vga.memory[(offset & 1) | (offset >> 1)] = data;
 }
 
 
@@ -5066,6 +5093,12 @@ void gamtor_vga_device::port_03d0_w(offs_t offset, uint8_t data)
 	}
 }
 
+uint16_t gamtor_vga_device::offset()
+{
+	// TODO: pinpoint whatever extra register that wants this shifted by 1
+	return vga_device::offset() << 1;
+}
+
 uint16_t ati_vga_device::offset()
 {
 	//popmessage("Offset: %04x  %s %s %s %s",vga.crtc.offset,vga.crtc.dw?"DW":"--",vga.crtc.word_mode?"BYTE":"WORD",(ati.ext_reg[0x33] & 0x40) ? "PEL" : "---",(ati.ext_reg[0x30] & 0x20) ? "256" : "---");
@@ -5137,9 +5170,10 @@ void ati_vga_device::set_dot_clock()
 		break;
 	default:
 		clock = XTAL(42'954'545).value();
-		logerror("Invalid dot clock %i selected.\n",clock_type);
+		LOGMASKED(LOG_INVALID, "Invalid dot clock %i selected.\n",clock_type);
+		break;
 	}
-//  logerror("ATI: Clock select type %i (%iHz / %i)\n",clock_type,clock,div);
+//  LOG("ATI: Clock select type %i (%iHz / %i)\n",clock_type,clock,div);
 	recompute_params_clock(divisor,clock / div);
 
 }
@@ -5209,19 +5243,19 @@ uint8_t ati_vga_device::ati_port_ext_r(offs_t offset)
 		{
 		case 0x20:
 			ret = 0x10;  // 16-bit ROM access
-			logerror("ATI20 read\n");
+			LOGMASKED(LOG_ATI, "ATI20 read\n");
 			break;
 		case 0x28:  // Vertical line counter (high)
 			ret = (screen().vpos() >> 8) & 0x03;
-			logerror("ATI28 (vertical line high) read\n");
+			LOGMASKED(LOG_ATI, "ATI28 (vertical line high) read\n");
 			break;
 		case 0x29:  // Vertical line counter (low)
 			ret = screen().vpos() & 0xff;  // correct?
-			logerror("ATI29 (vertical line low) read\n");
+			LOGMASKED(LOG_ATI, "ATI29 (vertical line low) read\n");
 			break;
 		case 0x2a:
 			ret = ati.vga_chip_id;  // Chip revision (6 for the 28800-6, 5 for the 28800-5) This register is not listed in ATI's mach32 docs
-			logerror("ATI2A (VGA ID) read\n");
+			LOGMASKED(LOG_ATI, "ATI2A (VGA ID) read\n");
 			break;
 		case 0x37:
 			{
@@ -5233,11 +5267,12 @@ uint8_t ati_vga_device::ati_port_ext_r(offs_t offset)
 		case 0x3d:
 			ret = ati.ext_reg[ati.ext_reg_select] & 0x0f;
 			ret |= 0x10;  // EGA DIP switch emulation
-			logerror("ATI3D (EGA DIP emulation) read\n");
+			LOGMASKED(LOG_ATI, "ATI3D (EGA DIP emulation) read\n");
 			break;
 		default:
 			ret = ati.ext_reg[ati.ext_reg_select];
-			logerror("ATI: Extended VGA register 0x01CE index %02x read\n",ati.ext_reg_select);
+			LOGMASKED(LOG_ATI, "ATI: Extended VGA register 0x01CE index %02x read\n",ati.ext_reg_select);
+			break;
 		}
 		break;
 	}
@@ -5259,15 +5294,15 @@ void ati_vga_device::ati_port_ext_w(offs_t offset, uint8_t data)
 			vga.crtc.start_addr_latch = (vga.crtc.start_addr_latch & 0xfffdffff) | ((data & 0x10) << 13);
 			vga.crtc.cursor_addr = (vga.crtc.cursor_addr & 0xfffdffff) | ((data & 0x08) << 14);
 			ati.ext_reg[ati.ext_reg_select] = data & 0x1f;
-			logerror("ATI: ATI23 write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI23 write %02x\n",data);
 			break;
 		case 0x26:
 			ati.ext_reg[ati.ext_reg_select] = data & 0xc9;
-			logerror("ATI: ATI26 write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI26 write %02x\n",data);
 			break;
 		case 0x2b:
 			ati.ext_reg[ati.ext_reg_select] = data & 0xdf;
-			logerror("ATI: ATI2B write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI2B write %02x\n",data);
 			break;
 		case 0x2d:
 			if(data & 0x08)
@@ -5276,17 +5311,17 @@ void ati_vga_device::ati_port_ext_w(offs_t offset, uint8_t data)
 				// bit 1 = bit 8 of horizontal blank start
 				// bit 2 = bit 8 of horizontal retrace start
 			}
-			logerror("ATI: ATI2D (extensions) write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI2D (extensions) write %02x\n",data);
 			break;
 		case 0x30:
 			vga.crtc.start_addr_latch = (vga.crtc.start_addr_latch & 0xfffeffff) | ((data & 0x40) << 10);
 			vga.crtc.cursor_addr = (vga.crtc.cursor_addr & 0xfffeffff) | ((data & 0x04) << 14);
 			ati.ext_reg[ati.ext_reg_select] = data & 0x7d;
-			logerror("ATI: ATI30 write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI30 write %02x\n",data);
 			break;
 		case 0x31:
 			ati.ext_reg[ati.ext_reg_select] = data & 0x7f;
-			logerror("ATI: ATI31 write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI31 write %02x\n",data);
 			break;
 		case 0x32:  // memory page select
 			if(ati.ext_reg[0x3e] & 0x08)
@@ -5299,7 +5334,7 @@ void ati_vga_device::ati_port_ext_w(offs_t offset, uint8_t data)
 				svga.bank_r = ((data & 0x1e) >> 1);
 				svga.bank_w = ((data & 0x1e) >> 1);
 			}
-			//logerror("ATI: Memory Page Select write %02x (read: %i write %i)\n",data,svga.bank_r,svga.bank_w);
+			//LOGMASKED(LOG_ATI, "ATI: Memory Page Select write %02x (read: %i write %i)\n",data,svga.bank_r,svga.bank_w);
 			break;
 		case 0x33:  // EEPROM
 			ati.ext_reg[ati.ext_reg_select] = data & 0xef;
@@ -5314,38 +5349,41 @@ void ati_vga_device::ati_port_ext_w(offs_t offset, uint8_t data)
 				}
 			}
 			else
-				logerror("ATI: ATI33 write %02x\n",data);
+			{
+				LOGMASKED(LOG_ATI, "ATI: ATI33 write %02x\n",data);
+			}
 			break;
 		case 0x38:
 			ati.ext_reg[ati.ext_reg_select] = data & 0xef;
-			logerror("ATI: ATI38 write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI38 write %02x\n",data);
 			break;
 		case 0x39:
 			ati.ext_reg[ati.ext_reg_select] = data & 0xfe;
-			logerror("ATI: ATI39 write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI39 write %02x\n",data);
 			break;
 		case 0x3a:  // General purpose read-write bits
 			ati.ext_reg[ati.ext_reg_select] = data & 0x07;
-			logerror("ATI: ATI3A write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI3A write %02x\n",data);
 			break;
 		case 0x3c:  // Reserved, should be 0
 			ati.ext_reg[ati.ext_reg_select] = 0;
-			logerror("ATI: ATI3C write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI3C write %02x\n",data);
 			break;
 		case 0x3d:
 			ati.ext_reg[ati.ext_reg_select] = data & 0xfd;
-			logerror("ATI: ATI3D write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI3D write %02x\n",data);
 			break;
 		case 0x3e:
 			ati.ext_reg[ati.ext_reg_select] = data & 0x1f;
-			logerror("ATI: ATI3E write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI3E write %02x\n",data);
 			break;
 		case 0x3f:
 			ati.ext_reg[ati.ext_reg_select] = data & 0x0f;
-			logerror("ATI: ATI3F write %02x\n",data);
+			LOGMASKED(LOG_ATI, "ATI: ATI3F write %02x\n",data);
 			break;
 		default:
-			logerror("ATI: Extended VGA register 0x01CE index %02x write %02x\n",ati.ext_reg_select,data);
+			LOGMASKED(LOG_ATI, "ATI: Extended VGA register 0x01CE index %02x write %02x\n",ati.ext_reg_select,data);
+			break;
 		}
 		break;
 	}
@@ -5404,7 +5442,7 @@ void ibm8514a_device::ibm8514_htotal_w(offs_t offset, uint8_t data)
 			break;
 	}
 	//vga.crtc.horz_total = data & 0x01ff;
-	if(LOG_8514) logerror("8514/A: Horizontal total write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Horizontal total write %04x\n",data);
 }
 
 /*
@@ -5456,7 +5494,7 @@ void ibm8514a_device::ibm8514_subcontrol_w(uint16_t data)
 {
 	ibm8514.subctrl = data;
 	ibm8514.substatus &= ~(data & 0x0f);  // reset interrupts
-//  if(LOG_8514) logerror("8514/A: Subsystem control write %04x\n",data);
+//  LOGMASKED(LOG_8514, "8514/A: Subsystem control write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_subcontrol_r()
@@ -5508,7 +5546,7 @@ void ibm8514a_device::ibm8514_vtotal_w(uint16_t data)
 {
 	ibm8514.vtotal = data;
 //  vga.crtc.vert_total = data;
-	if(LOG_8514) logerror("8514/A: Vertical total write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Vertical total write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_vdisp_r()
@@ -5520,7 +5558,7 @@ void ibm8514a_device::ibm8514_vdisp_w(uint16_t data)
 {
 	ibm8514.vdisp = data;
 //  vga.crtc.vert_disp_end = data >> 3;
-	if(LOG_8514) logerror("8514/A: Vertical Displayed write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Vertical Displayed write %04x\n",data);
 }
 
 uint16_t ibm8514a_device::ibm8514_vsync_r()
@@ -5531,7 +5569,7 @@ uint16_t ibm8514a_device::ibm8514_vsync_r()
 void ibm8514a_device::ibm8514_vsync_w(uint16_t data)
 {
 	ibm8514.vsync = data;
-	if(LOG_8514) logerror("8514/A: Vertical Sync write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Vertical Sync write %04x\n",data);
 }
 
 void ibm8514a_device::enabled()
@@ -5548,7 +5586,7 @@ uint16_t mach8_device::mach8_ec0_r()
 void mach8_device::mach8_ec0_w(uint16_t data)
 {
 	ibm8514.ec0 = data;
-	if(LOG_8514) logerror("8514/A: Extended configuration 0 write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Extended configuration 0 write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_ec1_r()
@@ -5559,7 +5597,7 @@ uint16_t mach8_device::mach8_ec1_r()
 void mach8_device::mach8_ec1_w(uint16_t data)
 {
 	ibm8514.ec1 = data;
-	if(LOG_8514) logerror("8514/A: Extended configuration 1 write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Extended configuration 1 write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_ec2_r()
@@ -5570,7 +5608,7 @@ uint16_t mach8_device::mach8_ec2_r()
 void mach8_device::mach8_ec2_w(uint16_t data)
 {
 	ibm8514.ec2 = data;
-	if(LOG_8514) logerror("8514/A: Extended configuration 2 write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Extended configuration 2 write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_ec3_r()
@@ -5581,7 +5619,7 @@ uint16_t mach8_device::mach8_ec3_r()
 void mach8_device::mach8_ec3_w(uint16_t data)
 {
 	ibm8514.ec3 = data;
-	if(LOG_8514) logerror("8514/A: Extended configuration 3 write %04x\n",data);
+	LOGMASKED(LOG_8514, "8514/A: Extended configuration 3 write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_ext_fifo_r()
@@ -5592,7 +5630,7 @@ uint16_t mach8_device::mach8_ext_fifo_r()
 void mach8_device::mach8_linedraw_index_w(uint16_t data)
 {
 	mach8.linedraw = data & 0x07;
-	if(LOG_8514) logerror("Mach8: Line Draw Index write %04x\n",data);
+	LOGMASKED(LOG_8514, "Mach8: Line Draw Index write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_bresenham_count_r()
@@ -5603,7 +5641,7 @@ uint16_t mach8_device::mach8_bresenham_count_r()
 void mach8_device::mach8_bresenham_count_w(uint16_t data)
 {
 	ibm8514.rect_width = data & 0x1fff;
-	if(LOG_8514) logerror("Mach8: Bresenham count write %04x\n",data);
+	LOGMASKED(LOG_8514, "Mach8: Bresenham count write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_linedraw_r()
@@ -5641,7 +5679,7 @@ void mach8_device::mach8_linedraw_w(uint16_t data)
 		mach8.linedraw = 4;
 		break;
 	}
-	logerror("ATI: Linedraw register write %04x, mode %i\n",data,mach8.linedraw);
+	LOGMASKED(LOG_ATI, "ATI: Linedraw register write %04x, mode %i\n",data,mach8.linedraw);
 }
 
 uint16_t mach8_device::mach8_sourcex_r()
@@ -5672,7 +5710,7 @@ uint16_t mach8_device::mach8_scratch0_r()
 void mach8_device::mach8_scratch0_w(uint16_t data)
 {
 	mach8.scratch0 = data;
-	if(LOG_8514) logerror("Mach8: Scratch Pad 0 write %04x\n",data);
+	LOGMASKED(LOG_8514, "Mach8: Scratch Pad 0 write %04x\n",data);
 }
 
 uint16_t mach8_device::mach8_scratch1_r()
@@ -5683,32 +5721,32 @@ uint16_t mach8_device::mach8_scratch1_r()
 void mach8_device::mach8_scratch1_w(uint16_t data)
 {
 	mach8.scratch1 = data;
-	if(LOG_8514) logerror("Mach8: Scratch Pad 1 write %04x\n",data);
+	LOGMASKED(LOG_8514, "Mach8: Scratch Pad 1 write %04x\n",data);
 }
 
 void mach8_device::mach8_crt_pitch_w(uint16_t data)
 {
 	mach8.crt_pitch = data & 0x00ff;
 	m_vga->set_offset(mach8.crt_pitch);
-	if(LOG_8514) logerror("Mach8: CRT pitch write %04x\n",mach8.crt_pitch);
+	LOGMASKED(LOG_8514, "Mach8: CRT pitch write %04x\n",mach8.crt_pitch);
 }
 
 void mach8_device::mach8_ge_offset_l_w(uint16_t data)
 {
 	mach8.ge_offset = (mach8.ge_offset & 0x0f0000) | data;
-	if(LOG_8514) logerror("Mach8: Graphics Engine Offset (Low) write %05x\n",mach8.ge_offset);
+	LOGMASKED(LOG_8514, "Mach8: Graphics Engine Offset (Low) write %05x\n",mach8.ge_offset);
 }
 
 void mach8_device::mach8_ge_offset_h_w(uint16_t data)
 {
 	mach8.ge_offset = (mach8.ge_offset & 0x00ffff) | ((data & 0x000f) << 16);
-	if(LOG_8514) logerror("Mach8: Graphics Engine Offset (High) write %05x\n",mach8.ge_offset);
+	LOGMASKED(LOG_8514, "Mach8: Graphics Engine Offset (High) write %05x\n",mach8.ge_offset);
 }
 
 void mach8_device::mach8_ge_pitch_w(uint16_t data)
 {
 	mach8.ge_pitch = data & 0x00ff;
-	if(LOG_8514) logerror("Mach8: Graphics Engine pitch write %04x\n",mach8.ge_pitch);
+	LOGMASKED(LOG_8514, "Mach8: Graphics Engine pitch write %04x\n",mach8.ge_pitch);
 }
 
 void mach8_device::mach8_scan_x_w(uint16_t data)
@@ -5722,7 +5760,7 @@ void mach8_device::mach8_scan_x_w(uint16_t data)
 		ibm8514.data_avail = true;
 	}
 	// TODO: non-wait version of Scan To X
-	if(LOG_8514) logerror("Mach8: Scan To X write %04x\n",mach8.scan_x);
+	LOGMASKED(LOG_8514, "Mach8: Scan To X write %04x\n",mach8.scan_x);
 }
 
 void mach8_device::mach8_pixel_xfer_w(offs_t offset, uint16_t data)
@@ -5788,7 +5826,7 @@ void mach8_device::mach8_wait_scan()
 void mach8_device::mach8_dp_config_w(uint16_t data)
 {
 	mach8.dp_config = data;
-	if(LOG_8514) logerror("Mach8: Data Path Configuration write %04x\n",mach8.dp_config);
+	LOGMASKED(LOG_8514, "Mach8: Data Path Configuration write %04x\n",mach8.dp_config);
 }
 
 /*
@@ -5835,4 +5873,859 @@ void mach8_device::mach8_ge_ext_config_w(uint16_t data)
 	mach8.ge_ext_config = data;
 	if(data & 0x8000)
 		popmessage("EEPROM enabled via 7AEE");
+}
+
+xga_copro_device::xga_copro_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: device_t(mconfig, XGA_COPRO, tag, owner, clock)
+	, m_var(TYPE::XGA)
+	, m_mem_read_cb(*this)
+	, m_mem_write_cb(*this)
+{
+}
+
+void xga_copro_device::start_command()
+{
+	switch((m_pelop >> 24) & 15)
+	{
+		case 11:
+			if(m_var == TYPE::OTI111)
+			{
+				LOGMASKED(LOG_OAK, "oak specific textblt\n");
+				break;
+			}
+			[[fallthrough]];
+		case 12:
+			if(m_var == TYPE::OTI111)
+			{
+				LOGMASKED(LOG_OAK, "oak specific fast pattern copy\n");
+				break;
+			}
+			[[fallthrough]];
+		default:
+			LOGMASKED(LOG_INVALID, "invalid pel op step func %d\n", (m_pelop >> 24) & 15);
+			break;
+		case 2:
+			LOGMASKED(LOG_COMMANDS, "draw and step read\n");
+			break;
+		case 3:
+			LOGMASKED(LOG_COMMANDS, "line draw read\n");
+			break;
+		case 4:
+			LOGMASKED(LOG_COMMANDS, "draw and step write\n");
+			break;
+		case 5:
+			LOGMASKED(LOG_COMMANDS, "line draw write\n");
+			break;
+		case 8:
+			do_pxblt();
+			break;
+		case 9:
+			LOGMASKED(LOG_COMMANDS, "inverting pxblt\n");
+			break;
+		case 10:
+			LOGMASKED(LOG_COMMANDS, "area fill pxblt\n");
+			break;
+	}
+}
+
+// Can maps be not byte aligned? XGA manual says they must be 32bit aligned in at least some cases.
+u32 xga_copro_device::read_map_pixel(int x, int y, int map)
+{
+	offs_t addr = m_pelmap_base[map];
+	int width = m_pelmap_width[map] + 1;
+	int height = m_pelmap_height[map] + 1;
+	int endian = m_pelmap_format[map] & 8;
+	int wbytes, bits;
+	u8 byte;
+	if((x > width) || (y > height) || (x < 0) || (y < 0))
+		return 0;
+	switch(m_pelmap_format[map] & 7)
+	{
+		case 0:
+			wbytes = width / 8;
+			addr += y * wbytes;
+			addr += x / 8;
+			byte = m_mem_read_cb(addr);
+			bits = (x % 8) - (endian ? 8 : 0);
+			return (byte >> bits) & 1;
+		case 1:
+			wbytes = width / 4;
+			addr += y * wbytes;
+			addr += x / 4;
+			byte = m_mem_read_cb(addr);
+			bits = (x % 4) - (endian ? 4 : 0);
+			return (byte >> (bits * 2)) & 3;
+		case 2:
+			wbytes = width / 2;
+			addr += y * wbytes;
+			addr += x / 2;
+			byte = m_mem_read_cb(addr);
+			bits = (x % 2) - (endian ? 2 : 0);
+			return (byte >> (bits * 4)) & 0xf;
+		case 3:
+			wbytes = width;
+			addr += y * wbytes;
+			addr += x;
+			//LOG("r %d %d %d %d %d %x\n",map,width, height,x,y, addr);
+			return m_mem_read_cb(addr);
+		case 4:
+			wbytes = width * 2;
+			addr += y * wbytes;
+			addr += x * 2;
+			if(endian)
+				return m_mem_read_cb(addr + 1) | (m_mem_read_cb(addr) << 8);
+			return m_mem_read_cb(addr) | (m_mem_read_cb(addr + 1) << 8);
+		case 5:
+			wbytes = width * 4;
+			addr += y * wbytes;
+			addr += x * 4;
+			if(endian)
+				return m_mem_read_cb(addr + 3) | (m_mem_read_cb(addr + 2) << 8) |
+						(m_mem_read_cb(addr + 1) << 16) | (m_mem_read_cb(addr) << 24);
+			return m_mem_read_cb(addr) | (m_mem_read_cb(addr + 1) << 8) |
+					(m_mem_read_cb(addr + 2) << 16) | (m_mem_read_cb(addr + 3) << 24);
+	}
+	LOGMASKED(LOG_INVALID, "invalid pixel map mode %d %d\n", map, m_pelmap_format[map] & 7);
+	return 0;
+}
+
+void xga_copro_device::write_map_pixel(int x, int y, int map, u32 pixel)
+{
+	offs_t addr = m_pelmap_base[map];
+	int width = m_pelmap_width[map] + 1;
+	int height = m_pelmap_height[map] + 1;
+	int endian = m_pelmap_format[map] & 8;
+	int wbytes;
+	u8 byte, mask;
+	if((x > width) || (y > height) || (x < 0) || (y < 0))
+		return;
+	switch(m_pelmap_format[map] & 7)
+	{
+		case 0:
+			wbytes = width / 8;
+			addr += y * wbytes;
+			addr += x / 8;
+			byte = m_mem_read_cb(addr);
+			mask = 1 << ((x % 8) - (endian ? 8 : 0));
+			byte = (byte & ~mask) | ((pixel ? 0xff : 0) & mask);
+			m_mem_write_cb(addr, byte);
+			break;
+		case 1:
+			wbytes = width / 4;
+			addr += y * wbytes;
+			addr += x / 4;
+			byte = m_mem_read_cb(addr);
+			mask = 3 << (((x % 4) - (endian ? 4 : 0)) * 2);
+			byte = (byte & ~mask) | ((pixel ? 0xff : 0) & mask);
+			m_mem_write_cb(addr, byte);
+			break;
+		case 2:
+			wbytes = width / 2;
+			addr += y * wbytes;
+			addr += x / 2;
+			byte = m_mem_read_cb(addr);
+			mask = 0xf << (((x % 2) - (endian ? 2 : 0)) * 4);
+			byte = (byte & ~mask) | ((pixel ? 0xff : 0) & mask);
+			m_mem_write_cb(addr, byte);
+			break;
+		case 3:
+			wbytes = width;
+			addr += y * wbytes;
+			addr += x;
+			//LOG("w %d %d %d %d %d %x %x\n",map,width, height,x,y, addr, pixel);
+			m_mem_write_cb(addr, (u8)pixel);
+			break;
+		case 4:
+			wbytes = width * 2;
+			addr += y * wbytes;
+			addr += x * 2;
+			if(endian)
+			{
+				m_mem_write_cb(addr + 1, pixel & 0xff);
+				m_mem_write_cb(addr, pixel >> 8);
+			}
+			else
+			{
+				m_mem_write_cb(addr, pixel & 0xff);
+				m_mem_write_cb(addr + 1, pixel >> 8);
+			}
+			break;
+		case 5:
+			wbytes = width * 4;
+			addr += y * wbytes;
+			addr += x * 4;
+			if(endian)
+			{
+				m_mem_write_cb(addr + 3, pixel & 0xff);
+				m_mem_write_cb(addr + 2, pixel >> 8);
+				m_mem_write_cb(addr + 1, pixel >> 16);
+				m_mem_write_cb(addr, pixel >> 24);
+			}
+			else
+			{
+				m_mem_write_cb(addr, pixel & 0xff);
+				m_mem_write_cb(addr + 1, pixel >> 8);
+				m_mem_write_cb(addr + 2, pixel >> 16);
+				m_mem_write_cb(addr + 3, pixel >> 24);
+			}
+			break;
+		default:
+			LOGMASKED(LOG_INVALID, "invalid pixel map mode %d %d\n", map, m_pelmap_format[map] & 7);
+			break;
+	}
+}
+
+u32 xga_copro_device::rop(u32 s, u32 d, u8 op)
+{
+	if(m_var == TYPE::OTI111)
+	{
+		switch(op)
+		{
+			default:
+			case 0:
+				return 0;
+			case 1:
+				return ~s & ~d;
+			case 2:
+				return ~s & d;
+			case 3:
+				return ~s;
+			case 4:
+				return s & ~d;
+			case 5:
+				return ~d;
+			case 6:
+				return s ^ d;
+			case 7:
+				return ~s | ~d;
+			case 8:
+				return s & d;
+			case 9:
+				return s ^ ~d;
+			case 10:
+				return d;
+			case 11:
+				return ~s | d;
+			case 12:
+				return s;
+			case 13:
+				return s | ~d;
+			case 14:
+				return s | d;
+			case 15:
+				return -1;
+		}
+	}
+	switch(op)
+	{
+		default:
+		case 0:
+			return 0;
+		case 1:
+			return s & d;
+		case 2:
+			return s & ~d;
+		case 3:
+			return s;
+		case 4:
+			return ~s & d;
+		case 5:
+			return d;
+		case 6:
+			return s ^ d;
+		case 7:
+			return s | d;
+		case 8:
+			return ~s & ~d;
+		case 9:
+			return s ^ ~d;
+		case 10:
+			return ~d;
+		case 11:
+			return s | ~d;
+		case 12:
+			return ~s;
+		case 13:
+			return ~s | d;
+		case 14:
+			return ~s | ~d;
+		case 15:
+			return -1;
+		case 16:
+			return std::max(s, d);
+		case 17:
+			return std::min(s, d);
+		case 18:
+			return 0; // saturate add
+		case 19:
+			return 0; // saturate sub d - s
+		case 20:
+			return 0; // saturate sub s - d
+		case 21:
+			return 0; // avg
+	}
+}
+
+void xga_copro_device::do_pxblt()
+{
+	u8 dir = (m_pelop >> 25) & 2;
+	int xstart, xend, xdir, ystart, yend, ydir;
+	u8 srcmap = ((m_pelop >> 20) & 0xf) - 1;
+	u8 dstmap = ((m_pelop >> 16) & 0xf) - 1;
+	u8 patmap = ((m_pelop >> 12) & 0xf) - 1;
+	LOGMASKED(LOG_COMMANDS, "pxblt src %d pat %d dst %d dim1 %d dim2 %d srcbase %x dstbase %x\n", srcmap+1, dstmap+1, patmap+1, m_opdim1 & 0xfff, m_opdim2 & 0xfff, m_pelmap_base[srcmap+1], m_pelmap_base[dstmap+1]);
+	LOGMASKED(LOG_COMMANDS, "%d %d %d %d\n", m_srcxaddr & 0xfff, m_srcyaddr & 0xfff, m_dstxaddr & 0xfff, m_dstyaddr & 0xfff);
+	if((srcmap > 2) || (dstmap > 2) || ((patmap > 2) && (patmap != 7) && (patmap != 8)))
+	{
+		LOGMASKED(LOG_INVALID, "invalid pelmap\n");
+		return;
+	}
+	if(dir & 1)
+	{
+		ystart = (m_opdim2 & 0xfff) + 1;
+		yend = 0;
+		ydir = -1;
+	}
+	else
+	{
+		ystart = 0;
+		yend = (m_opdim2 & 0xfff) + 1;
+		ydir = 1;
+	}
+	if(dir & 2)
+	{
+		xstart = (m_opdim1 & 0xfff) + 1;
+		xend = 0;
+		xdir = -1;
+	}
+	else
+	{
+		xstart = 0;
+		xend = (m_opdim1 & 0xfff) + 1;
+		xdir = 1;
+	}
+
+	std::function<s16(s16)> dstwrap;
+	if(m_var == TYPE::OTI111)
+		dstwrap = [](s16 addr) { return addr & 0xfff; };
+	else
+	{
+		dstwrap = [](s16 addr)
+		{
+			addr = addr & 0x1fff;
+			return (addr & 0x1800) == 0x1800 ? addr | 0xf800 : addr;
+		};
+	}
+
+	for(int y = ystart; y != yend; y += ydir)
+	{
+		u16 patxaddr = m_patxaddr & 0xfff;
+		u16 srcxaddr = m_srcxaddr & 0xfff;
+		s16 dstxaddr = dstwrap(m_dstxaddr);
+		s16 dstyaddr = dstwrap(m_dstyaddr);
+		for(int x = xstart; x != xend; x += xdir)
+		{
+			u32 src, dst, pat;
+			if(patmap < 3)
+			{
+				pat = read_map_pixel(patxaddr, m_patyaddr & 0xfff, patmap + 1);
+				patxaddr += xdir;
+			}
+			else
+				pat = 1; //TODO: generate from source mode
+			if(pat)
+				src = (((m_pelop >> 28) & 3) == 2) ? read_map_pixel(srcxaddr, m_srcyaddr & 0xfff, srcmap + 1) : m_fcolor;
+			else
+				src = (((m_pelop >> 30) & 3) == 2) ? read_map_pixel(srcxaddr, m_srcyaddr & 0xfff, srcmap + 1) : m_bcolor;
+			srcxaddr += xdir;
+			dst = read_map_pixel(dstxaddr, dstyaddr, dstmap + 1);
+			dst = (dst & ~m_pelbmask) | (rop(src, dst, pat ? m_fmix : m_bmix) & m_pelbmask);
+			write_map_pixel(dstxaddr, dstyaddr, dstmap + 1, dst); // TODO: color compare
+			dstxaddr = dstwrap(dstxaddr + xdir);
+		}
+		m_patyaddr += ydir;
+		m_srcyaddr += ydir;
+		m_dstyaddr += ydir;
+	}
+}
+
+u8 xga_copro_device::xga_read(offs_t offset)
+{
+	switch(offset)
+	{
+		case 0x12:
+			return m_pelmap;
+		case 0x14:
+			return m_pelmap_base[m_pelmap];
+		case 0x15:
+			return m_pelmap_base[m_pelmap] >> 8;
+		case 0x16:
+			return m_pelmap_base[m_pelmap] >> 16;
+		case 0x17:
+			return m_pelmap_base[m_pelmap] >> 24;
+		case 0x18:
+			return m_pelmap_width[m_pelmap];
+		case 0x19:
+			return m_pelmap_width[m_pelmap] >> 8;
+		case 0x1a:
+			return m_pelmap_height[m_pelmap];
+		case 0x1b:
+			return m_pelmap_height[m_pelmap] >> 8;
+		case 0x1c:
+			return m_pelmap_format[m_pelmap];
+		case 0x20:
+			return m_bresh_err;
+		case 0x21:
+			return m_bresh_err >> 8;
+		case 0x24:
+			return m_bresh_k1;
+		case 0x25:
+			return m_bresh_k1 >> 8;
+		case 0x28:
+			return m_bresh_k2;
+		case 0x29:
+			return m_bresh_k2 >> 8;
+		case 0x2c:
+			return m_dir;
+		case 0x2d:
+			return m_dir >> 8;
+		case 0x2e:
+			return m_dir >> 16;
+		case 0x2f:
+			return m_dir >> 24;
+		case 0x48:
+			if(m_var == TYPE::OTI111)
+				return m_fmix << 4 | m_bmix;
+			return m_fmix;
+		case 0x49:
+			if(m_var == TYPE::OTI111)
+				return 0;
+			return m_bmix;
+		case 0x4a:
+			return m_destccc;
+		case 0x4c:
+			return m_destccv;
+		case 0x4d:
+			return m_destccv >> 8;
+		case 0x4e:
+			return m_destccv >> 16;
+		case 0x4f:
+			return m_destccv >> 24;
+		case 0x50:
+			return m_pelbmask;
+		case 0x51:
+			return m_pelbmask >> 8;
+		case 0x52:
+			return m_pelbmask >> 16;
+		case 0x53:
+			return m_pelbmask >> 24;
+		case 0x54:
+			return m_carrychain;
+		case 0x55:
+			return m_carrychain >> 8;
+		case 0x56:
+			return m_carrychain >> 16;
+		case 0x57:
+			return m_carrychain >> 24;
+		case 0x58:
+			return m_fcolor;
+		case 0x59:
+			return m_fcolor >> 8;
+		case 0x5a:
+			return m_fcolor >> 16;
+		case 0x5b:
+			return m_fcolor >> 24;
+		case 0x5c:
+			return m_bcolor;
+		case 0x5d:
+			return m_bcolor >> 8;
+		case 0x5e:
+			return m_bcolor >> 16;
+		case 0x5f:
+			return m_bcolor >> 24;
+		case 0x60:
+			return m_opdim1;
+		case 0x61:
+			return m_opdim1 >> 8;
+		case 0x62:
+			return m_opdim2;
+		case 0x63:
+			return m_opdim2 >> 8;
+		case 0x6c:
+			return m_maskorigx;
+		case 0x6d:
+			return m_maskorigx >> 8;
+		case 0x6e:
+			return m_maskorigy;
+		case 0x6f:
+			return m_maskorigy >> 8;
+		case 0x70:
+			return m_srcxaddr;
+		case 0x71:
+			return m_srcxaddr >> 8;
+		case 0x72:
+			return m_srcyaddr;
+		case 0x73:
+			return m_srcyaddr >> 8;
+		case 0x74:
+			return m_patxaddr;
+		case 0x75:
+			return m_patxaddr >> 8;
+		case 0x76:
+			return m_patyaddr;
+		case 0x77:
+			return m_patyaddr >> 8;
+		case 0x78:
+			return m_dstxaddr;
+		case 0x79:
+			return m_dstxaddr >> 8;
+		case 0x7a:
+			return m_dstyaddr;
+		case 0x7b:
+			return m_dstyaddr >> 8;
+		case 0x7c:
+			return m_pelop;
+		case 0x7d:
+			return m_pelop >> 8;
+		case 0x7e:
+			return m_pelop >> 16;
+		case 0x7f:
+			return m_pelop >> 24;
+	}
+	return 0;
+}
+
+void xga_copro_device::xga_write(offs_t offset, u8 data)
+{
+	switch(offset)
+	{
+		case 0x12:
+			m_pelmap = data & 3;
+			break;
+		case 0x14:
+			m_pelmap_base[m_pelmap] = (m_pelmap_base[m_pelmap] & ~0xff) | data;
+			break;
+		case 0x15:
+			m_pelmap_base[m_pelmap] = (m_pelmap_base[m_pelmap] & ~0xff00) | (data << 8);
+			break;
+		case 0x16:
+			m_pelmap_base[m_pelmap] = (m_pelmap_base[m_pelmap] & ~0xff0000) | (data << 16);
+			break;
+		case 0x17:
+			m_pelmap_base[m_pelmap] = (m_pelmap_base[m_pelmap] & ~0xff000000) | (data << 24);
+			break;
+		case 0x18:
+			m_pelmap_width[m_pelmap] = (m_pelmap_width[m_pelmap] & ~0xff) | data;
+			break;
+		case 0x19:
+			m_pelmap_width[m_pelmap] = (m_pelmap_width[m_pelmap] & ~0xff00) | (data << 8);
+			break;
+		case 0x1a:
+			m_pelmap_height[m_pelmap] = (m_pelmap_height[m_pelmap] & ~0xff) | data;
+			break;
+		case 0x1b:
+			m_pelmap_height[m_pelmap] = (m_pelmap_height[m_pelmap] & ~0xff00) | (data << 8);
+			break;
+		case 0x1c:
+			m_pelmap_format[m_pelmap] = data;
+			break;
+		case 0x20:
+			m_bresh_err = (m_bresh_err & ~0xff) | data;
+			break;
+		case 0x21:
+			m_bresh_err = (m_bresh_err & ~0xff00) | (data << 8);
+			break;
+		case 0x24:
+			m_bresh_k1 = (m_bresh_k1 & ~0xff) | data;
+			break;
+		case 0x25:
+			m_bresh_k1 = (m_bresh_k1 & ~0xff00) | (data << 8);
+			break;
+		case 0x28:
+			m_bresh_k2 = (m_bresh_k2 & ~0xff) | data;
+			break;
+		case 0x29:
+			m_bresh_k2 = (m_bresh_k2 & ~0xff00) | (data << 8);
+			break;
+		case 0x2c:
+			m_dir = (m_dir & ~0xff) | data;
+			break;
+		case 0x2d:
+			m_dir = (m_dir & ~0xff00) | (data << 8);
+			break;
+		case 0x2e:
+			m_dir = (m_dir & ~0xff0000) | (data << 16);
+			break;
+		case 0x2f:
+			m_dir = (m_dir & ~0xff000000) | (data << 24);
+			break;
+		case 0x48:
+			if(m_var == TYPE::OTI111)
+			{
+				m_fmix = data >> 4;
+				m_bmix = data & 0xf;
+				break;
+			}
+			m_fmix = data;
+			break;
+		case 0x49:
+			if(m_var == TYPE::OTI111)
+				break;
+			m_bmix = data;
+			break;
+		case 0x4a:
+			m_destccc = data;
+			break;
+		case 0x4c:
+			m_destccv = (m_destccv & ~0xff) | data;
+			break;
+		case 0x4d:
+			m_destccv = (m_destccv & ~0xff00) | (data << 8);
+			break;
+		case 0x4e:
+			m_destccv = (m_destccv & ~0xff0000) | (data << 16);
+			break;
+		case 0x4f:
+			m_destccv = (m_destccv & ~0xff000000) | (data << 24);
+			break;
+		case 0x50:
+			m_pelbmask = (m_pelbmask & ~0xff) | data;
+			break;
+		case 0x51:
+			m_pelbmask = (m_pelbmask & ~0xff00) | (data << 8);
+			break;
+		case 0x52:
+			m_pelbmask = (m_pelbmask & ~0xff0000) | (data << 16);
+			break;
+		case 0x53:
+			m_pelbmask = (m_pelbmask & ~0xff000000) | (data << 24);
+			break;
+		case 0x54:
+			m_carrychain = (m_carrychain & ~0xff) | data;
+			break;
+		case 0x55:
+			m_carrychain = (m_carrychain & ~0xff00) | (data << 8);
+			break;
+		case 0x56:
+			m_carrychain = (m_carrychain & ~0xff0000) | (data << 16);
+			break;
+		case 0x57:
+			m_carrychain = (m_carrychain & ~0xff000000) | (data << 24);
+			break;
+		case 0x58:
+			m_fcolor = (m_fcolor & ~0xff) | data;
+			break;
+		case 0x59:
+			m_fcolor = (m_fcolor & ~0xff00) | (data << 8);
+			break;
+		case 0x5a:
+			m_fcolor = (m_fcolor & ~0xff0000) | (data << 16);
+			break;
+		case 0x5b:
+			m_fcolor = (m_fcolor & ~0xff000000) | (data << 24);
+			break;
+		case 0x5c:
+			m_bcolor = (m_bcolor & ~0xff) | data;
+			break;
+		case 0x5d:
+			m_bcolor = (m_bcolor & ~0xff00) | (data << 8);
+			break;
+		case 0x5e:
+			m_bcolor = (m_bcolor & ~0xff0000) | (data << 16);
+			break;
+		case 0x5f:
+			m_bcolor = (m_bcolor & ~0xff000000) | (data << 24);
+			break;
+		case 0x60:
+			m_opdim1 = (m_opdim1 & ~0xff) | data;
+			break;
+		case 0x61:
+			m_opdim1 = (m_opdim1 & ~0xff00) | (data << 8);
+			break;
+		case 0x62:
+			m_opdim2 = (m_opdim2 & ~0xff) | data;
+			break;
+		case 0x63:
+			m_opdim2 = (m_opdim2 & ~0xff00) | (data << 8);
+			break;
+		case 0x6c:
+			m_maskorigx = (m_maskorigx & ~0xff) | data;
+			break;
+		case 0x6d:
+			m_maskorigx = (m_maskorigx & ~0xff00) | (data << 8);
+			break;
+		case 0x6e:
+			m_maskorigy = (m_maskorigy & ~0xff) | data;
+			break;
+		case 0x6f:
+			m_maskorigy = (m_maskorigy & ~0xff00) | (data << 8);
+			break;
+		case 0x70:
+			m_srcxaddr = (m_srcxaddr & ~0xff) | data;
+			break;
+		case 0x71:
+			m_srcxaddr = (m_srcxaddr & ~0xff00) | (data << 8);
+			break;
+		case 0x72:
+			m_srcyaddr = (m_srcyaddr & ~0xff) | data;
+			break;
+		case 0x73:
+			m_srcyaddr = (m_srcyaddr & ~0xff00) | (data << 8);
+			break;
+		case 0x74:
+			m_patxaddr = (m_patxaddr & ~0xff) | data;
+			break;
+		case 0x75:
+			m_patxaddr = (m_patxaddr & ~0xff00) | (data << 8);
+			break;
+		case 0x76:
+			m_patyaddr = (m_patyaddr & ~0xff) | data;
+			break;
+		case 0x77:
+			m_patyaddr = (m_patyaddr & ~0xff00) | (data << 8);
+			break;
+		case 0x78:
+			m_dstxaddr = (m_dstxaddr & ~0xff) | data;
+			break;
+		case 0x79:
+			m_dstxaddr = (m_dstxaddr & ~0xff00) | (data << 8);
+			break;
+		case 0x7a:
+			m_dstyaddr = (m_dstyaddr & ~0xff) | data;
+			break;
+		case 0x7b:
+			m_dstyaddr = (m_dstyaddr & ~0xff00) | (data << 8);
+			break;
+		case 0x7c:
+			m_pelop = (m_pelop & ~0xff) | data;
+			break;
+		case 0x7d:
+			m_pelop = (m_pelop & ~0xff00) | (data << 8);
+			break;
+		case 0x7e:
+			m_pelop = (m_pelop & ~0xff0000) | (data << 16);
+			break;
+		case 0x7f:
+			m_pelop = (m_pelop & ~0xff000000) | (data << 24);
+			start_command();
+			break;
+	}
+}
+
+void xga_copro_device::device_start()
+{
+	m_mem_read_cb.resolve_safe(0);
+	m_mem_write_cb.resolve_safe();
+}
+
+void xga_copro_device::device_reset()
+{
+	m_pelmap = 0;
+}
+
+oak_oti111_vga_device::oak_oti111_vga_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: svga_device(mconfig, OTI111, tag, owner, clock)
+	, m_xga(*this, "xga")
+{
+}
+
+void oak_oti111_vga_device::device_add_mconfig(machine_config &config)
+{
+	XGA_COPRO(config, m_xga, 0);
+	m_xga->mem_read_callback().set(FUNC(oak_oti111_vga_device::mem_linear_r));
+	m_xga->mem_write_callback().set(FUNC(oak_oti111_vga_device::mem_linear_w));
+	m_xga->set_type(xga_copro_device::TYPE::OTI111);
+}
+
+u8 oak_oti111_vga_device::xga_read(offs_t offset)
+{
+	switch(offset)
+	{
+		case 0x13: //fifo status
+			return 0xf;
+		default:
+			return m_xga->xga_read(offset);
+	}
+	return 0;
+}
+
+void oak_oti111_vga_device::xga_write(offs_t offset, u8 data)
+{
+	m_xga->xga_write(offset, data);
+}
+
+void oak_oti111_vga_device::device_start()
+{
+	svga_device::device_start();
+	std::fill(std::begin(m_oak_regs), std::end(m_oak_regs), 0);
+}
+
+u8 oak_oti111_vga_device::dac_read(offs_t offset)
+{
+	if(offset >= 6)
+		return vga_device::port_03c0_r(offset);
+	return 0;
+}
+
+void oak_oti111_vga_device::dac_write(offs_t offset, u8 data)
+{
+	if(offset >= 6)
+		vga_device::port_03c0_w(offset, data);
+}
+
+
+u8 oak_oti111_vga_device::port_03d0_r(offs_t offset)
+{
+	uint8_t res = 0xff;
+	switch(offset)
+	{
+		case 14:
+			return m_oak_idx;
+		case 15:
+			return m_oak_idx <= 0x3a ? m_oak_regs[m_oak_idx] : 0;
+		default:
+			if (CRTC_PORT_ADDR == 0x3d0)
+				res = vga_device::port_03d0_r(offset);
+			break;
+	}
+
+	return res;
+}
+
+void oak_oti111_vga_device::port_03d0_w(offs_t offset, uint8_t data)
+{
+	switch(offset)
+	{
+		case 14:
+			m_oak_idx = data;
+			break;
+		case 15:
+			if(m_oak_idx > 0x3a)
+				break;
+			m_oak_regs[m_oak_idx] = data;
+			switch(m_oak_idx)
+			{
+				case 0x21:
+					svga.rgb8_en = BIT(data, 2);
+					break;
+				case 0x33:
+					vga.crtc.no_wrap = BIT(data, 0);
+					break;
+			}
+			break;
+		default:
+			if (CRTC_PORT_ADDR == 0x3d0)
+				vga_device::port_03d0_w(offset,data);
+			break;
+	}
+}
+
+uint16_t oak_oti111_vga_device::offset()
+{
+	uint16_t off = svga_device::offset();
+
+	if (svga.rgb8_en || svga.rgb15_en || svga.rgb16_en || svga.rgb32_en)
+		return vga.crtc.offset << 4;  // TODO: there must a register to control this
+	else
+		return off;
 }

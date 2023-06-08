@@ -49,10 +49,10 @@
 #include "emu.h"
 #include "scn_pci.h"
 
-#define LOG_INIT    (1 << 1U)
-#define LOG_COMMAND (1 << 2U)
-#define LOG_RCVR    (1 << 3U)
-#define LOG_XMTR    (1 << 4U)
+#define LOG_INIT    (1U << 1)
+#define LOG_COMMAND (1U << 2)
+#define LOG_RCVR    (1U << 3)
+#define LOG_XMTR    (1U << 4)
 //#define VERBOSE (LOG_INIT | LOG_COMMAND | LOG_RCVR | LOG_XMTR)
 #include "logmacro.h"
 
@@ -303,7 +303,7 @@ void scn2641_device::device_resolve_objects()
 void scn_pci_device::device_start()
 {
 	// Create timer for baud rate generator
-	m_brg_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(scn_pci_device::brg_tick), this));
+	m_brg_timer = timer_alloc(FUNC(scn_pci_device::brg_tick), this);
 
 	// Save state
 	save_item(NAME(m_rhr));

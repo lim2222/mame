@@ -56,7 +56,7 @@ device_iq151cart_interface::~device_iq151cart_interface()
 iq151cart_slot_device::iq151cart_slot_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: device_t(mconfig, IQ151CART_SLOT, tag, owner, clock)
 	, device_single_card_slot_interface<device_iq151cart_interface>(mconfig, *this)
-	, device_image_interface(mconfig, *this)
+	, device_cartrom_image_interface(mconfig, *this)
 	, m_out_irq0_cb(*this)
 	, m_out_irq1_cb(*this)
 	, m_out_irq2_cb(*this)
@@ -155,31 +155,28 @@ void iq151cart_slot_device::video_update(bitmap_ind16 &bitmap, const rectangle &
     call load
 -------------------------------------------------*/
 
-image_init_result iq151cart_slot_device::call_load()
+std::pair<std::error_condition, std::string> iq151cart_slot_device::call_load()
 {
 	if (m_cart)
 	{
-		offs_t read_length;
-		uint8_t *cart_base = m_cart->get_cart_base();
+		uint8_t *const cart_base = m_cart->get_cart_base();
+		if (!cart_base)
+			return std::make_pair(image_error::INTERNAL, std::string());
 
-		if (cart_base != nullptr)
+		offs_t read_length;
+		if (!loaded_through_softlist())
 		{
-			if (!loaded_through_softlist())
-			{
-				read_length = length();
-				fread(m_cart->get_cart_base(), read_length);
-			}
-			else
-			{
-				read_length = get_software_region_length("rom");
-				memcpy(m_cart->get_cart_base(), get_software_region("rom"), read_length);
-			}
+			read_length = length();
+			fread(m_cart->get_cart_base(), read_length);
 		}
 		else
-			return image_init_result::FAIL;
+		{
+			read_length = get_software_region_length("rom");
+			memcpy(m_cart->get_cart_base(), get_software_region("rom"), read_length);
+		}
 	}
 
-	return image_init_result::PASS;
+	return std::make_pair(std::error_condition(), std::string());
 }
 
 /*-------------------------------------------------

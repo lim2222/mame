@@ -102,7 +102,6 @@
 #include <algorithm>
 #include <fstream>
 
-#define LOG_GENERAL     (1U << 0)
 #define LOG_COMMAND     (1U << 1)
 #define LOG_SAMPLE      (1U << 2)
 
@@ -262,10 +261,11 @@ void qsound_device::sound_stream_update(sound_stream &stream, std::vector<read_s
 
 
 //-------------------------------------------------
-//  rom_bank_updated - the rom bank has changed
+//  rom_bank_post_change - called after the ROM
+//  bank is changed
 //-------------------------------------------------
 
-void qsound_device::rom_bank_updated()
+void qsound_device::rom_bank_post_change()
 {
 	machine().scheduler().synchronize();
 }
@@ -358,12 +358,12 @@ u16 qsound_device::dsp_pio_r()
 	}
 }
 
-void qsound_device::set_dsp_ready(void *ptr, s32 param)
+void qsound_device::set_dsp_ready(s32 param)
 {
 	m_dsp_ready = 1U;
 }
 
-void qsound_device::set_cmd(void *ptr, s32 param)
+void qsound_device::set_cmd(s32 param)
 {
 	/*
 	 *  I don't believe the data word is actually double-buffered in

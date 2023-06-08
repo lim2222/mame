@@ -41,7 +41,7 @@ protected:
 	virtual void device_start() override;
 	virtual void device_clock_changed() override;
 
-	virtual void rom_bank_updated() override;
+	virtual void rom_bank_pre_change() override;
 
 	// sound stream update overrides
 	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
@@ -79,6 +79,8 @@ protected:
 	virtual const inline bool ch_mulaw(C140_VOICE *v) { return BIT(v->mode, 3); }
 	// bit 6 used, unknown
 
+	u8 keyon_status_read(u16 offset);
+
 	TIMER_CALLBACK_MEMBER(int1_on);
 
 	devcb_write_line m_int1_callback;
@@ -97,8 +99,6 @@ protected:
 	C140_VOICE m_voi[MAX_VOICE];
 
 	emu_timer *m_int1_timer;
-
-	u8 keyon_status_read(u16 offset);
 };
 
 class c219_device : public c140_device

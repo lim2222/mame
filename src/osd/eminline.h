@@ -33,8 +33,10 @@
 
 #elif defined(_MSC_VER)
 
-#if (defined(_M_IX86) || defined(_M_X64))
+#if defined(_M_IX86) || defined(_M_X64)
 #include "eivcx86.h"
+#elif defined(_M_ARM) || defined(_M_ARM64)
+#include "eivcarm.h"
 #endif
 
 #include "eivc.h"
@@ -352,12 +354,12 @@ inline bool addu_64x64_co(uint64_t a, uint64_t b, uint64_t &sum)
 ***************************************************************************/
 
 /*-------------------------------------------------
-    count_leading_zeros - return the number of
+    count_leading_zeros_32 - return the number of
     leading zero bits in a 32-bit value
 -------------------------------------------------*/
 
-#ifndef count_leading_zeros
-inline uint8_t count_leading_zeros(uint32_t val)
+#ifndef count_leading_zeros_32
+inline uint8_t count_leading_zeros_32(uint32_t val)
 {
 	if (!val) return 32U;
 	uint8_t count;
@@ -368,15 +370,46 @@ inline uint8_t count_leading_zeros(uint32_t val)
 
 
 /*-------------------------------------------------
-    count_leading_ones - return the number of
+    count_leading_ones_32 - return the number of
     leading one bits in a 32-bit value
 -------------------------------------------------*/
 
-#ifndef count_leading_ones
-inline uint8_t count_leading_ones(uint32_t val)
+#ifndef count_leading_ones_32
+inline uint8_t count_leading_ones_32(uint32_t val)
 {
 	uint8_t count;
 	for (count = 0; int32_t(val) < 0; count++) val <<= 1;
+	return count;
+}
+#endif
+
+
+/*-------------------------------------------------
+    count_leading_zeros_64 - return the number of
+    leading zero bits in a 64-bit value
+-------------------------------------------------*/
+
+#ifndef count_leading_zeros_64
+inline uint8_t count_leading_zeros_64(uint64_t val)
+{
+	if (!val) return 64U;
+	uint8_t count;
+	for (count = 0; int64_t(val) >= 0; count++) val <<= 1;
+	return count;
+}
+#endif
+
+
+/*-------------------------------------------------
+    count_leading_ones_64 - return the number of
+    leading one bits in a 64-bit value
+-------------------------------------------------*/
+
+#ifndef count_leading_ones_64
+inline uint8_t count_leading_ones_64(uint64_t val)
+{
+	uint8_t count;
+	for (count = 0; int64_t(val) < 0; count++) val <<= 1;
 	return count;
 }
 #endif
@@ -441,6 +474,74 @@ inline unsigned population_count_64(uint64_t val)
 #endif
 
 
+/*-------------------------------------------------
+    rotl_32 - circularly shift a 32-bit value left
+    by the specified number of bits (modulo 32)
+-------------------------------------------------*/
+
+#ifndef rotl_32
+constexpr uint32_t rotl_32(uint32_t val, int shift)
+{
+	shift &= 31;
+	if (shift)
+		return val << shift | val >> (32 - shift);
+	else
+		return val;
+}
+#endif
+
+
+/*-------------------------------------------------
+    rotr_32 - circularly shift a 32-bit value right
+    by the specified number of bits (modulo 32)
+-------------------------------------------------*/
+
+#ifndef rotr_32
+constexpr uint32_t rotr_32(uint32_t val, int shift)
+{
+	shift &= 31;
+	if (shift)
+		return val >> shift | val << (32 - shift);
+	else
+		return val;
+}
+#endif
+
+
+/*-------------------------------------------------
+    rotl_64 - circularly shift a 64-bit value left
+    by the specified number of bits (modulo 64)
+-------------------------------------------------*/
+
+#ifndef rotl_64
+constexpr uint64_t rotl_64(uint64_t val, int shift)
+{
+	shift &= 63;
+	if (shift)
+		return val << shift | val >> (64 - shift);
+	else
+		return val;
+}
+#endif
+
+
+/*-------------------------------------------------
+    rotr_64 - circularly shift a 64-bit value right
+    by the specified number of bits (modulo 64)
+-------------------------------------------------*/
+
+#ifndef rotr_64
+constexpr uint64_t rotr_64(uint64_t val, int shift)
+{
+	shift &= 63;
+	if (shift)
+		return val >> shift | val << (64 - shift);
+	else
+		return val;
+}
+#endif
+
+
 /***************************************************************************
     INLINE TIMING FUNCTIONS
 ***************************************************************************/
@@ -453,7 +554,7 @@ inline unsigned population_count_64(uint64_t val)
 -------------------------------------------------*/
 
 #ifndef get_profile_ticks
-inline int64_t get_profile_ticks()
+inline int64_t get_profile_ticks() noexcept
 {
 	return osd_ticks();
 }

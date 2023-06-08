@@ -35,6 +35,8 @@ public:
 	virtual DECLARE_WRITE_LINE_MEMBER( input_data6 ) override { if (state) m_input_data |= 0x40; else m_input_data &= ~0x40; }
 	virtual DECLARE_WRITE_LINE_MEMBER( input_data7 ) override { if (state) m_input_data |= 0x80; else m_input_data &= ~0x80; }
 
+	virtual bool exists() const = 0;
+
 protected:
 	// construction/destruction
 	scsihle_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);
@@ -43,7 +45,10 @@ protected:
 	virtual ioport_constructor device_input_ports() const override;
 	virtual void device_start() override;
 	virtual void device_reset() override;
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
+
+	TIMER_CALLBACK_MEMBER(req_tick);
+	TIMER_CALLBACK_MEMBER(sel_tick);
+	TIMER_CALLBACK_MEMBER(dataout_tick);
 
 private:
 	required_ioport m_scsi_id;

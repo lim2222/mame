@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "softlist_dev.h"
+#include "imagedev/cartrom.h"
 
 /***************************************************************************
  TYPE DEFINITIONS
@@ -46,7 +46,7 @@ public:
 	virtual bool is_read_access_not_rom(void) { return false; }
 	virtual bool is_write_access_not_rom(void) { return false; }
 
-	void rom_alloc(uint32_t size, const char *tag);
+	void rom_alloc(uint32_t size);
 	uint8_t* get_rom_base() { return m_rom; }
 	uint32_t get_rom_size() { return m_rom_size; }
 
@@ -61,7 +61,7 @@ protected:
 // ======================> ekara_cart_slot_device
 
 class ekara_cart_slot_device : public device_t,
-								public device_image_interface,
+								public device_cartrom_image_interface,
 								public device_single_card_slot_interface<device_ekara_cart_interface>
 {
 public:
@@ -80,20 +80,15 @@ public:
 
 	virtual ~ekara_cart_slot_device();
 
-	// image-level overrides
-	virtual image_init_result call_load() override;
+	// device_image_interface implementation
+	virtual std::pair<std::error_condition, std::string> call_load() override;
 	virtual void call_unload() override {}
 
-	virtual iodevice_t image_type() const noexcept override { return IO_CARTSLOT; }
-	virtual bool is_readable()  const noexcept override { return true; }
-	virtual bool is_writeable() const noexcept override { return false; }
-	virtual bool is_creatable() const noexcept override { return false; }
-	virtual bool must_be_loaded() const noexcept override { return false; }
 	virtual bool is_reset_on_load() const noexcept override { return true; }
 	virtual const char *image_interface() const noexcept override { return "ekara_cart"; }
 	virtual const char *file_extensions() const noexcept override { return "bin,u1"; }
 
-	// slot interface overrides
+	// device_slot_interface implementation
 	virtual std::string get_default_card_software(get_default_card_software_hook &hook) const override;
 
 	int get_type() { return m_type; }
@@ -119,11 +114,8 @@ public:
 	bool has_cart() { return m_cart ? true : false; }
 
 protected:
-	// device-level overrides
+	// device_t implementation
 	virtual void device_start() override;
-
-	// device_image_interface implementation
-	virtual const software_list_loader &get_software_list_loader() const override { return rom_software_list_loader::instance(); }
 
 	int m_type;
 	device_ekara_cart_interface*       m_cart;
@@ -135,8 +127,6 @@ DECLARE_DEVICE_TYPE(EKARA_CART_SLOT, ekara_cart_slot_device)
 /***************************************************************************
  DEVICE CONFIGURATION MACROS
  ***************************************************************************/
-
-#define EKARASLOT_ROM_REGION_TAG ":cart:rom"
 
 void ekara_cart(device_slot_interface &device);
 

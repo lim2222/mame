@@ -51,26 +51,8 @@ enum machine_notification
 // debug flags
 constexpr int DEBUG_FLAG_ENABLED        = 0x00000001;       // debugging is enabled
 constexpr int DEBUG_FLAG_CALL_HOOK      = 0x00000002;       // CPU cores must call instruction hook
-constexpr int DEBUG_FLAG_WPR_PROGRAM    = 0x00000010;       // watchpoints are enabled for PROGRAM memory reads
-constexpr int DEBUG_FLAG_WPR_DATA       = 0x00000020;       // watchpoints are enabled for DATA memory reads
-constexpr int DEBUG_FLAG_WPR_IO         = 0x00000040;       // watchpoints are enabled for IO memory reads
-constexpr int DEBUG_FLAG_WPW_PROGRAM    = 0x00000100;       // watchpoints are enabled for PROGRAM memory writes
-constexpr int DEBUG_FLAG_WPW_DATA       = 0x00000200;       // watchpoints are enabled for DATA memory writes
-constexpr int DEBUG_FLAG_WPW_IO         = 0x00000400;       // watchpoints are enabled for IO memory writes
 constexpr int DEBUG_FLAG_OSD_ENABLED    = 0x00001000;       // The OSD debugger is enabled
 
-
-
-//**************************************************************************
-//  MACROS
-//**************************************************************************
-
-// global allocation helpers
-#define auto_alloc(m, t)                pool_alloc(static_cast<running_machine &>(m).respool(), t)
-#define auto_alloc_clear(m, t)          pool_alloc_clear(static_cast<running_machine &>(m).respool(), t)
-#define auto_alloc_array(m, t, c)       pool_alloc_array(static_cast<running_machine &>(m).respool(), t, c)
-#define auto_alloc_array_clear(m, t, c) pool_alloc_array_clear(static_cast<running_machine &>(m).respool(), t, c)
-#define auto_free(m, v)                 pool_free(static_cast<running_machine &>(m).respool(), v)
 
 
 //**************************************************************************
@@ -125,9 +107,6 @@ class running_machine
 
 	typedef std::function<void (const char*)> logerror_callback;
 
-	// must be at top of member variables
-	resource_pool           m_respool;              // pool of resources for this machine
-
 public:
 	// construction/destruction
 	running_machine(const machine_config &config, machine_manager &manager);
@@ -139,7 +118,6 @@ public:
 	const game_driver &system() const { return m_system; }
 	osd_interface &osd() const;
 	machine_manager &manager() const { return m_manager; }
-	[[deprecated("use smart pointers to manage object lifecycles")]] resource_pool &respool() { return m_respool; }
 	device_scheduler &scheduler() { return m_scheduler; }
 	save_manager &save() { return m_save; }
 	memory_manager &memory() { return m_memory; }
@@ -150,7 +128,7 @@ public:
 	sound_manager &sound() const { assert(m_sound != nullptr); return *m_sound; }
 	video_manager &video() const { assert(m_video != nullptr); return *m_video; }
 	network_manager &network() const { assert(m_network != nullptr); return *m_network; }
-	bookkeeping_manager &bookkeeping() const { assert(m_network != nullptr); return *m_bookkeeping; }
+	bookkeeping_manager &bookkeeping() const { assert(m_bookkeeping != nullptr); return *m_bookkeeping; }
 	configuration_manager  &configuration() const { assert(m_configuration != nullptr); return *m_configuration; }
 	output_manager  &output() const { assert(m_output != nullptr); return *m_output; }
 	ui_manager &ui() const { assert(m_ui != nullptr); return *m_ui; }
@@ -167,7 +145,6 @@ public:
 	bool paused() const { return m_paused || (m_current_phase != machine_phase::RUNNING); }
 	bool exit_pending() const { return m_exit_pending; }
 	bool hard_reset_pending() const { return m_hard_reset_pending; }
-	bool ui_active() const { return m_ui_active; }
 	const std::string &basename() const { return m_basename; }
 	int sample_rate() const { return m_sample_rate; }
 	bool save_or_load_pending() const { return !m_saveload_pending_file.empty(); }
@@ -184,13 +161,13 @@ public:
 	bool allow_logging() const { return !m_logerror_list.empty(); }
 
 	// fetch items by name
-	[[deprecated("absolute tag lookup; use subdevice or finder instead")]] inline device_t *device(const char *tag) const { return root_device().subdevice(tag); }
-	template <class DeviceClass> [[deprecated("absolute tag lookup; use subdevice or finder instead")]] inline DeviceClass *device(const char *tag) { return downcast<DeviceClass *>(device(tag)); }
+	template <class DeviceClass> [[deprecated("absolute tag lookup; use subdevice or finder instead")]] inline DeviceClass *device(const char *tag) { return downcast<DeviceClass *>(root_device().subdevice(tag)); }
 
 #if defined(__LIBRETRO__)
-void retro_machineexit();
-void retro_loop();
+	void retro_machine_exit();
+	void retro_loop();
 #endif
+
 	// immediate operations
 	int run(bool quiet);
 	void pause();
@@ -199,13 +176,12 @@ void retro_loop();
 	void add_notifier(machine_notification event, machine_notify_delegate callback, bool first = false);
 	void call_notifiers(machine_notification which);
 	void add_logerror_callback(logerror_callback callback);
-	void set_ui_active(bool active) { m_ui_active = active; }
 	void debug_break();
 	void export_http_api();
 
 	// TODO: Do saves and loads still require scheduling?
-	void immediate_save(const char *filename);
-	void immediate_load(const char *filename);
+	void immediate_save(std::string_view filename);
+	void immediate_load(std::string_view filename);
 
 	// rewind operations
 	bool rewind_capture();
@@ -244,7 +220,7 @@ public:
 	bool debug_enabled() { return (debug_flags & DEBUG_FLAG_ENABLED) != 0; }
 
 	// used by debug_console to take ownership of the debug.log file
-	std::unique_ptr<emu_file> steal_debuglogfile() { return std::move(m_debuglogfile); }
+	std::unique_ptr<emu_file> steal_debuglogfile();
 
 private:
 	class side_effects_disabler {
@@ -275,12 +251,12 @@ private:
 	void start();
 	void set_saveload_filename(std::string &&filename);
 	void handle_saveload();
-	void soft_reset(void *ptr = nullptr, s32 param = 0);
+	void soft_reset(s32 param = 0);
 	std::string nvram_filename(device_t &device) const;
 	void nvram_load();
 	void nvram_save();
 	void popup_clear() const;
-	void popup_message(util::format_argument_pack<std::ostream> const &args) const;
+	void popup_message(util::format_argument_pack<char> const &args) const;
 
 	// internal callbacks
 	void logfile_callback(const char *buffer);
@@ -324,7 +300,6 @@ private:
 
 	// misc state
 	u32                     m_rand_seed;            // current random number seed
-	bool                    m_ui_active;            // ui active or not (useful for games / systems with keyboard inputs)
 	time_t                  m_base_time;            // real time at initial emulation time
 	std::string             m_basename;             // basename used for game-related paths
 	int                     m_sample_rate;          // the digital audio sample rate
@@ -427,7 +402,7 @@ inline void running_machine::logerror(Format &&fmt, Params &&... args) const
 	// process only if there is a target
 	if (allow_logging())
 	{
-		g_profiler.start(PROFILER_LOGERROR);
+		auto profile = g_profiler.start(PROFILER_LOGERROR);
 
 		// dump to the buffer
 		m_string_buffer.clear();
@@ -436,9 +411,7 @@ inline void running_machine::logerror(Format &&fmt, Params &&... args) const
 		m_string_buffer.put('\0');
 
 		strlog(&m_string_buffer.vec()[0]);
-
-		g_profiler.stop();
 	}
 }
 
-#endif  /* MAME_EMU_MACHINE_H */
+#endif // MAME_EMU_MACHINE_H

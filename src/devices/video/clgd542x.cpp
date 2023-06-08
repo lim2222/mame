@@ -12,8 +12,10 @@
 #include "screen.h"
 
 
-#define LOG_REG 0
-#define LOG_BLIT 1
+#define LOG_REG  (1U << 1)
+#define LOG_BLIT (1U << 2)
+#define VERBOSE (0)
+#include "logmacro.h"
 
 #define CRTC_PORT_ADDR ((vga.miscellaneous_output&1)?0x3d0:0x3b0)
 
@@ -70,8 +72,7 @@ void cirrus_gd5428_device::device_start()
 {
 	zero();
 
-	int i;
-	for (i = 0; i < 0x100; i++)
+	for (int i = 0; i < 0x100; i++)
 		set_pen_color(i, 0, 0, 0);
 
 	// Avoid an infinite loop when displaying.  0 is not possible anyway.
@@ -81,17 +82,16 @@ void cirrus_gd5428_device::device_start()
 	vga.read_dipswitch.set(nullptr); //read_dipswitch;
 	vga.svga_intf.seq_regcount = 0x1f;
 	vga.svga_intf.crtc_regcount = 0x2d;
-	vga.svga_intf.vram_size = 0x200000;
-
-	vga.memory.resize(vga.svga_intf.vram_size);
+	vga.memory = std::make_unique<uint8_t []>(vga.svga_intf.vram_size);
 	memset(&vga.memory[0], 0, vga.svga_intf.vram_size);
-	save_item(NAME(vga.memory));
+
+	save_pointer(NAME(vga.memory), vga.svga_intf.vram_size);
 	save_pointer(vga.crtc.data,"CRTC Registers",0x100);
 	save_pointer(vga.sequencer.data,"Sequencer Registers",0x100);
 	save_pointer(vga.attribute.data,"Attribute Registers", 0x15);
 	save_item(NAME(m_chip_id));
 
-	m_vblank_timer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(vga_device::vblank_timer_cb),this));
+	m_vblank_timer = timer_alloc(FUNC(vga_device::vblank_timer_cb), this);
 
 	m_chip_id = 0x98;  // GD5428 - Rev 0
 }
@@ -268,7 +268,7 @@ void cirrus_gd5428_device::start_bitblt()
 		return;
 	}
 
-	if(LOG_BLIT) logerror("CL: BitBLT started: Src: %06x Dst: %06x Width: %i Height %i ROP: %02x Mode: %02x\n",m_blt_source,m_blt_dest,m_blt_width,m_blt_height,m_blt_rop,m_blt_mode);
+	LOGMASKED(LOG_BLIT, "CL: BitBLT started: Src: %06x Dst: %06x Width: %i Height %i ROP: %02x Mode: %02x\n",m_blt_source,m_blt_dest,m_blt_width,m_blt_height,m_blt_rop,m_blt_mode);
 
 	m_blt_source_current = m_blt_source;
 	m_blt_dest_current = m_blt_dest;
@@ -343,7 +343,7 @@ void cirrus_gd5428_device::start_reverse_bitblt()
 {
 	uint32_t x,y;
 
-	if(LOG_BLIT) logerror("CL: Reverse BitBLT started: Src: %06x Dst: %06x Width: %i Height %i ROP: %02x Mode: %02x\n",m_blt_source,m_blt_dest,m_blt_width,m_blt_height,m_blt_rop,m_blt_mode);
+	LOGMASKED(LOG_BLIT, "CL: Reverse BitBLT started: Src: %06x Dst: %06x Width: %i Height %i ROP: %02x Mode: %02x\n",m_blt_source,m_blt_dest,m_blt_width,m_blt_height,m_blt_rop,m_blt_mode);
 
 	// Start at end of blit
 	m_blt_source_current = m_blt_source;
@@ -416,7 +416,7 @@ void cirrus_gd5428_device::start_reverse_bitblt()
 
 void cirrus_gd5428_device::start_system_bitblt()
 {
-	if(LOG_BLIT) logerror("CL: BitBLT from system memory started: Src: %06x Dst: %06x Width: %i Height %i ROP: %02x Mode: %02x\n",m_blt_source,m_blt_dest,m_blt_width,m_blt_height,m_blt_rop,m_blt_mode);
+	LOGMASKED(LOG_BLIT, "CL: BitBLT from system memory started: Src: %06x Dst: %06x Width: %i Height %i ROP: %02x Mode: %02x\n",m_blt_source,m_blt_dest,m_blt_width,m_blt_height,m_blt_rop,m_blt_mode);
 	m_blt_system_transfer = true;
 	m_blt_system_count = 0;
 	m_blt_system_buffer = 0;
@@ -581,7 +581,7 @@ uint8_t cirrus_gd5428_device::cirrus_seq_reg_read(uint8_t index)
 
 void cirrus_gd5428_device::cirrus_seq_reg_write(uint8_t index, uint8_t data)
 {
-	if(LOG_REG) logerror("CL: SEQ write %02x to SR%02x\n",data,index);
+	LOGMASKED(LOG_REG, "CL: SEQ write %02x to SR%02x\n",data,index);
 	switch(index)
 	{
 		case 0x02:
@@ -795,7 +795,7 @@ uint8_t cirrus_gd5428_device::cirrus_gc_reg_read(uint8_t index)
 
 void cirrus_gd5428_device::cirrus_gc_reg_write(uint8_t index, uint8_t data)
 {
-	if(LOG_REG) logerror("CL: GC write %02x to GR%02x\n",data,index);
+	LOGMASKED(LOG_REG, "CL: GC write %02x to GR%02x\n",data,index);
 	switch(index)
 	{
 	case 0x00:  // if extended writes are enabled (bit 2 of index 0bh), then index 0 and 1 are extended to 8 bits, however XFree86 does not appear to do this...
@@ -1121,7 +1121,7 @@ uint8_t cirrus_gd5428_device::cirrus_crtc_reg_read(uint8_t index)
 
 void cirrus_gd5428_device::cirrus_crtc_reg_write(uint8_t index, uint8_t data)
 {
-	if(LOG_REG) logerror("CL: CRTC write %02x to CR%02x\n",data,index);
+	LOGMASKED(LOG_REG, "CL: CRTC write %02x to CR%02x\n",data,index);
 	switch(index)
 	{
 	case 0x16:  // VGA Vertical Blank end - some SVGA chipsets use all 8 bits, and this is one of them (according to MFGTST CRTC tests)

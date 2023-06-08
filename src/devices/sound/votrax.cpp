@@ -26,10 +26,16 @@ tp1 = phi clock (tied to f2q rom access)
 #include "votrax.h"
 
 
-DEFINE_DEVICE_TYPE(VOTRAX_SC01, votrax_sc01_device, "votrax", "Votrax SC-01")
+DEFINE_DEVICE_TYPE(VOTRAX_SC01, votrax_sc01_device, "votrsc01", "Votrax SC-01")
+DEFINE_DEVICE_TYPE(VOTRAX_SC01A, votrax_sc01a_device, "votrsc01a", "Votrax SC-01-A")
 
 // ROM definition for the Votrax phone ROM
 ROM_START( votrax_sc01 )
+	ROM_REGION64_LE( 0x200, "internal", 0 )
+	ROM_LOAD( "sc01.bin", 0x000, 0x200, CRC(528d1c57) SHA1(268b5884dce04e49e2376df3e2dc82e852b708c1) )
+ROM_END
+
+ROM_START( votrax_sc01a )
 	ROM_REGION64_LE( 0x200, "internal", 0 )
 	ROM_LOAD( "sc01a.bin", 0x000, 0x200, CRC(fc416227) SHA1(1d6da90b1807a01b5e186ef08476119a862b5e6d) )
 ROM_END
@@ -74,13 +80,23 @@ const double votrax_sc01_device::s_glottal_wave[9] =
 	1/7.0
 };
 
-
 votrax_sc01_device::votrax_sc01_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: device_t(mconfig, VOTRAX_SC01, tag, owner, clock),
+	: votrax_sc01_device(mconfig, VOTRAX_SC01, tag, owner, clock)
+{
+}
+
+// overridable type for subclass
+votrax_sc01_device::votrax_sc01_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock)
+	: device_t(mconfig, type, tag, owner, clock),
 	  device_sound_interface(mconfig, *this),
 	  m_stream(nullptr),
 	  m_rom(*this, "internal"),
 	  m_ar_cb(*this)
+{
+}
+
+votrax_sc01a_device::votrax_sc01a_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
+	: votrax_sc01_device(mconfig, VOTRAX_SC01A, tag, owner, clock)
 {
 }
 
@@ -98,6 +114,7 @@ void votrax_sc01_device::write(uint8_t data)
 		logerror("phone %02x.%d %s\n", m_phone, m_inflection, s_phone_table[m_phone]);
 
 	m_ar_state = CLEAR_LINE;
+	m_ar_cb(m_ar_state);
 
 	// Schedule a commit/ar reset at roughly 0.1ms in the future (one
 	// phi1 transition followed by the rom extra state in practice),
@@ -157,6 +174,11 @@ const tiny_rom_entry *votrax_sc01_device::device_rom_region() const
 	return ROM_NAME( votrax_sc01 );
 }
 
+const tiny_rom_entry *votrax_sc01a_device::device_rom_region() const
+{
+	return ROM_NAME( votrax_sc01a );
+}
+
 
 //-------------------------------------------------
 //  device_start - handle device startup
@@ -169,7 +191,7 @@ void votrax_sc01_device::device_start()
 	m_sclock = m_mainclock / 18.0;
 	m_cclock = m_mainclock / 36.0;
 	m_stream = stream_alloc(0, 1, m_sclock);
-	m_timer = timer_alloc();
+	m_timer = timer_alloc(FUNC(votrax_sc01_device::phone_tick), this);
 
 	// reset outputs
 	m_ar_cb.resolve_safe();
@@ -330,10 +352,10 @@ void votrax_sc01_device::device_clock_changed()
 
 
 //-------------------------------------------------
-//  device_timer - handle device timer
+//  phone_tick - process transitions
 //-------------------------------------------------
 
-void votrax_sc01_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(votrax_sc01_device::phone_tick)
 {
 	m_stream->update();
 
@@ -632,7 +654,7 @@ stream_buffer::sample_t votrax_sc01_device::analog_calc()
 	vn = apply_filter(m_vn_5, m_vn_6, m_fx_a, m_fx_b);
 	shift_hist(vn, m_vn_6);
 
-	return vn*1.5;
+	return vn*0.35;
 }
 
 /*

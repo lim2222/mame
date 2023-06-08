@@ -130,10 +130,8 @@ void vrender0soc_device::device_add_mconfig(machine_config &config)
 	m_screen->screen_vblank().set(FUNC(vrender0soc_device::screen_vblank));
 	m_screen->set_palette(m_palette);
 
-	VIDEO_VRENDER0(config, m_vr0vid, 14318180);
-#ifdef IDLE_LOOP_SPEEDUP
-	m_vr0vid->idleskip_cb().set(FUNC(vrender0soc_device::idle_skip_speedup_w));
-#endif
+	// runs at double speed wrt of the CPU clock
+	VIDEO_VRENDER0(config, m_vr0vid, DERIVED_CLOCK(2, 1));
 
 	PALETTE(config, m_palette, palette_device::RGB_565);
 
@@ -164,8 +162,10 @@ void vrender0soc_device::device_start()
 	if (this->clock() == 0)
 		fatalerror("%s: bus clock not setup properly",this->tag());
 
-	for (int i = 0; i < 4; i++)
-		m_Timer[i] = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(vrender0soc_device::Timercb),this), (void*)(uintptr_t)i);
+	m_Timer[0] = timer_alloc(FUNC(vrender0soc_device::Timercb<0>), this);
+	m_Timer[1] = timer_alloc(FUNC(vrender0soc_device::Timercb<1>), this);
+	m_Timer[2] = timer_alloc(FUNC(vrender0soc_device::Timercb<2>), this);
+	m_Timer[3] = timer_alloc(FUNC(vrender0soc_device::Timercb<3>), this);
 
 	write_tx.resolve_all_safe();
 
@@ -190,10 +190,6 @@ void vrender0soc_device::device_start()
 	save_item(NAME(m_dma[1].src));
 	save_item(NAME(m_dma[1].dst));
 	save_item(NAME(m_dma[1].size));
-
-#ifdef IDLE_LOOP_SPEEDUP
-	save_item(NAME(m_FlipCntRead));
-#endif
 }
 
 void vrender0soc_device::write_line_tx(int port, uint8_t value)
@@ -224,10 +220,6 @@ void vrender0soc_device::device_reset()
 		m_timer_control[i] = 0xff << 8;
 		m_Timer[i]->adjust(attotime::never);
 	}
-
-#ifdef IDLE_LOOP_SPEEDUP
-	m_FlipCntRead = 0;
-#endif
 }
 
 
@@ -316,10 +308,6 @@ void vrender0soc_device::IntReq( int num )
 		m_intst |= (1 << num);
 		m_host_cpu->set_input_line(SE3208_INT, ASSERT_LINE);
 	}
-
-#ifdef IDLE_LOOP_SPEEDUP
-	idle_skip_resume_w(ASSERT_LINE);
-#endif
 }
 
 
@@ -362,17 +350,17 @@ void vrender0soc_device::TimerStart(int which)
 //  printf("timer %d start, PD = %x TCV = %x period = %s\n", which, PD, TCV, period.as_string());
 }
 
+template<int Which>
 TIMER_CALLBACK_MEMBER(vrender0soc_device::Timercb)
 {
-	int which = (int)(uintptr_t)ptr;
 	static const int num[] = { 0, 1, 9, 10 };
 
-	if (m_timer_control[which] & 2)
-		TimerStart(which);
+	if (m_timer_control[Which] & 2)
+		TimerStart(Which);
 	else
-		m_timer_control[which] &= ~1;
+		m_timer_control[Which] &= ~1;
 
-	IntReq(num[which]);
+	IntReq(num[Which]);
 }
 
 template<int Which>
@@ -726,29 +714,9 @@ WRITE_LINE_MEMBER(vrender0soc_device::screen_vblank)
 	if (state)
 	{
 		if (crt_active_vblank_irq() == true)
+		{
 			IntReq(24);      //VRender0 VBlank
-
-		m_vr0vid->execute_flipping();
+			m_vr0vid->execute_flipping();
+		}
 	}
 }
-
-/*
- *
- * Hacks
- *
- */
-
-#ifdef IDLE_LOOP_SPEEDUP
-WRITE_LINE_MEMBER(vrender0soc_device::idle_skip_resume_w)
-{
-	m_FlipCntRead = 0;
-	m_host_cpu->resume(SUSPEND_REASON_SPIN);
-}
-
-WRITE_LINE_MEMBER(vrender0soc_device::idle_skip_speedup_w)
-{
-	m_FlipCntRead++;
-	if (m_FlipCntRead >= 16 && irq_pending() == false && state == ASSERT_LINE)
-		m_host_cpu->suspend(SUSPEND_REASON_SPIN, 1);
-}
-#endif

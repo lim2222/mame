@@ -1,13 +1,15 @@
 <?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <!--
-license:CC0
+license:CC0-1.0
 -->
-<softwarelist name="mobigo_cart" description="VTech Mobigo Cartridges">
+<softwarelist name="mobigo_cart" description="VTech MobiGo cartridges">
 
 	<!-- This list is ordered by game description -->
 
-	<!-- 52-250704 - Mobigo 2 Game Cartridge (Internal Game) (ger) is a dummy cartridge to enable the game in the BIOS -->
+	<!-- Dummy carts (just a jumper PCB, without ROM) that enable internal games in the BIOS:
+	    80-250700 - Touch & Learn - Game Pack (US)
+	    80-250704 - MobiGo 2 (GE) -->
 
 	<software name="ben10g" supported="no">
 		<description>Ben 10 - UltimateAlien - Mine der Gedanken (Germany)</description>
@@ -45,7 +47,20 @@ license:CC0
 		</part>
 	</software>
 
-	<software name="cars2g" supported="no">
+	<!-- offset 0x12 is '0x02' is this a version number? cartridge was still only marked as 80-251900(US) -->
+	<software name="cars2" supported="no">
+		<description>Disney/Pixar Cars 2 (USA, rev 2?)</description>
+		<year>2011</year>
+		<publisher>VTech</publisher>
+		<info name="serial" value="80-251900(US)"/>
+		<part name="cart" interface="mobigo_cart">
+			<dataarea name="rom" size="0x1000000">
+				<rom name="mobigo_251900_2.bin" size="0x1000000" crc="9d0da1ef" sha1="2fc4e5e4251508b391067541fcca0230b6cf5b16"/>
+			</dataarea>
+		</part>
+	</software>
+
+	<software name="cars2g" cloneof="cars2" supported="no">
 		<description>Disney/Pixar Cars 2 (Germany)</description>
 		<year>2011</year>
 		<publisher>VTech</publisher>
@@ -124,18 +139,6 @@ license:CC0
 		<info name="serial" value="80-251100(US)"/>
 		<part name="cart" interface="mobigo_cart">
 			<dataarea name="rom" size="0x1000000">
-				<rom name="mobigo_251100.bin" size="0x1000000" crc="5d9d8f5f" sha1="359ba58fe4266b31aefa8397121069ce2ec33318"/>
-			</dataarea>
-		</part>
-	</software>
-
-	<software name="dprincesalt" cloneof="dprinces" supported="no">
-		<description>Disney Princess (USA, alt)</description>
-		<year>2010</year>
-		<publisher>VTech</publisher>
-		<info name="serial" value="80-251100(US)"/>
-		<part name="cart" interface="mobigo_cart">
-			<dataarea name="rom" size="0x1000000">
 				<rom name="80-251100 - Disney Princess (US).bin" size="0x1000000" crc="fd9d04fc" sha1="af9ae160faf3087eb4d3a375c484e569465d4fc4"/>
 			</dataarea>
 		</part>
@@ -185,18 +188,6 @@ license:CC0
 		<part name="cart" interface="mobigo_cart">
 			<dataarea name="rom" size="0x1000000">
 				<rom name="mobigo_252800.bin" size="0x1000000" crc="afb1288c" sha1="355358492787020668daf2cf7cf56fadf3da2710"/>
-			</dataarea>
-		</part>
-	</software>
-
-	<software name="jakenevalt" cloneof="jakenev" supported="no">
-		<description>Disney Jake and the Neverland Pirates (USA, alt)</description>
-		<year>2012</year>
-		<publisher>VTech</publisher>
-		<info name="serial" value="80-252800(US)"/>
-		<part name="cart" interface="mobigo_cart">
-			<dataarea name="rom" size="0x1000000">
-				<rom name="80-252800 - Jake and the Neverland Pirates (US).bin" size="0x1000000" crc="eebe529e" sha1="7a8dc059e6713470937631b2b4d65cf87f9d3d20"/>
 			</dataarea>
 		</part>
 	</software>
@@ -368,19 +359,31 @@ license:CC0
 		</part>
 	</software>
 
-	<software name="spongebg" supported="no">
-		<description>Nickelodeon Spongebob Schwammkopf - Rette das Geheimrezept (Germany)</description>
+	<software name="spongeb" supported="no">
+		<description>Nickelodeon SpongeBob SquarePants - Defending the Secret Formula (USA)</description>
+		<year>2011</year>
+		<publisher>VTech</publisher>
+		<info name="serial" value="80-251500(US)"/>
+		<part name="cart" interface="mobigo_cart">
+			<dataarea name="rom" size="0x1000000">
+				<rom name="80-251500 - SpongeBob SquarePants - Defending the Secret Formula (US).bin" size="0x1000000" crc="85266243" sha1="4ffd4ca308d1d3419396e706892ff6eff23d8cd0"/>
+			</dataarea>
+		</part>
+	</software>
+
+	<software name="spongebg" cloneof="spongeb" supported="no">
+		<description>Nickelodeon SpongeBob Schwammkopf - Rette das Geheimrezept (Germany)</description>
 		<year>2011</year>
 		<publisher>VTech</publisher>
 		<info name="serial" value="80-251504(GER)"/>
 		<part name="cart" interface="mobigo_cart">
 			<dataarea name="rom" size="0x1000000">
-				<rom name="80-251504 - Spongebob Schwammkopf - Rette das Geheimrezept (GER).bin" size="0x1000000" crc="19efae9e" sha1="5c3eeb04cdec48cb92c5410ceef57e4b60adeeee"/>
+				<rom name="80-251504 - SpongeBob Schwammkopf - Rette das Geheimrezept (GER).bin" size="0x1000000" crc="19efae9e" sha1="5c3eeb04cdec48cb92c5410ceef57e4b60adeeee"/>
 			</dataarea>
 		</part>
 	</software>
 
-	<software name="spongebs" cloneof="spongebg" supported="no">
+	<software name="spongebs" cloneof="spongeb" supported="no">
 		<description>Nickelodeon Bob Esponja - Defendiendo la Fórmula Secreta (Spain)</description>
 		<year>2011</year>
 		<publisher>VTech</publisher>
@@ -439,14 +442,28 @@ license:CC0
 		</part>
 	</software>
 
+	<!-- offset 0x12 is '0x01' is this a version number? cartridge was still only marked as 80-252700(US) -->
 	<software name="thomas" supported="no">
-		<description>Thomas &amp; Friends - Really Useful Engines (USA)</description>
+		<description>Thomas &amp; Friends - Really Useful Engines (USA, rev 1?)</description>
 		<year>2012</year>
 		<publisher>VTech</publisher>
 		<info name="serial" value="80-252700(US)"/>
 		<part name="cart" interface="mobigo_cart">
 			<dataarea name="rom" size="0x1000000">
 				<rom name="mobigo_252700.bin" size="0x1000000" crc="a5e6e828" sha1="cf33feca9ea8cf6716524546c6c10a6048eadda6"/>
+			</dataarea>
+		</part>
+	</software>
+
+	<!-- offset 0x12 is '0x02' is this a version number? cartridge was still only marked as 80-252700(US) -->
+	<software name="thomasa" cloneof="thomas" supported="no">
+		<description>Thomas &amp; Friends - Really Useful Engines (USA, rev 2?)</description>
+		<year>2012</year>
+		<publisher>VTech</publisher>
+		<info name="serial" value="80-252700(US)"/>
+		<part name="cart" interface="mobigo_cart">
+			<dataarea name="rom" size="0x1000000">
+				<rom name="mobigo_252700_2.bin" size="0x1000000" crc="a5515438" sha1="3a9896c28479aff95d43692da2562e97f974c44d"/>
 			</dataarea>
 		</part>
 	</software>
@@ -487,7 +504,19 @@ license:CC0
 		</part>
 	</software>
 
-	<software name="tstory3g" supported="no">
+	<software name="tstory3" supported="no">
+		<description>Disney/Pixar Toy Story 3 (USA)</description>
+		<year>2010</year>
+		<publisher>VTech</publisher>
+		<info name="serial" value="80-250100(US)"/>
+		<part name="cart" interface="mobigo_cart">
+			<dataarea name="rom" size="0x1000000">
+				<rom name="mobigotoystory3.bin" size="0x1000000" crc="bf7bc6e1" sha1="cc86160f29848d6620923cffd0f740a593ba2d94"/>
+			</dataarea>
+		</part>
+	</software>
+
+	<software name="tstory3g" cloneof="tstory3" supported="no">
 		<description>Disney/Pixar Toy Story 3 (Germany)</description>
 		<year>201?</year>
 		<publisher>VTech</publisher>
@@ -495,17 +524,6 @@ license:CC0
 		<part name="cart" interface="mobigo_cart">
 			<dataarea name="rom" size="0x1000000">
 				<rom name="80-250104 - toy story 3 (ger).bin" size="0x1000000" crc="caafa975" sha1="0dd2b13a05711412493255fcf2b8ac31a3445800"/>
-			</dataarea>
-		</part>
-	</software>
-
-	<software name="tstory3a" supported="no"> <!-- part #? full title? region? -->
-		<description>Disney/Pixar Toy Story 3</description>
-		<year>201?</year>
-		<publisher>VTech</publisher>
-		<part name="cart" interface="mobigo_cart">
-			<dataarea name="rom" size="0x1000000">
-				<rom name="mobigotoystory3.bin" size="0x1000000" crc="bf7bc6e1" sha1="cc86160f29848d6620923cffd0f740a593ba2d94"/>
 			</dataarea>
 		</part>
 	</software>

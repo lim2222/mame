@@ -33,9 +33,9 @@
 #include "emu.h"
 #include "mc6854.h"
 
-#define LOG_SETUP    ( 1U << 1 )
-#define LOG_BITS     ( 1U << 2 )
-#define LOG_IRQ      ( 1U << 3 )
+#define LOG_SETUP    (1U << 1)
+#define LOG_BITS     (1U << 2)
+#define LOG_IRQ      (1U << 3)
 
 //#define VERBOSE (LOG_IRQ | LOG_BITS | LOG_GENERAL | LOG_SETUP)
 //#define LOG_OUTPUT_STREAM std::cout
@@ -194,7 +194,7 @@ void mc6854_device::device_start()
 	m_out_rts_cb.resolve_safe();
 	m_out_dtr_cb.resolve_safe();
 
-	m_ttimer = machine().scheduler().timer_alloc(timer_expired_delegate(FUNC(mc6854_device::tfifo_cb), this));
+	m_ttimer = timer_alloc(FUNC(mc6854_device::tfifo_cb), this);
 
 	save_item(NAME(m_cr1));
 	save_item(NAME(m_cr2));

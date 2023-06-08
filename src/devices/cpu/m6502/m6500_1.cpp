@@ -58,10 +58,22 @@
     appear to include the addition of an onboard power-on reset.  It
     is unknown what other differences these devices have.
 
+    TODO:
+    - For some reason most if not all Amiga MCU programs accesses arbitrary
+      zero page 0x90-0xff with a back-to-back cmp($00, x) opcode at
+      PC=c06-c08 with the actual result discarded. X can be any value in
+      the 0x90-0xff range, depending on the last user keypress row source
+      e.g. 0xdf-0xe0 for 'A', 0xef-0xf0 for 'Q', 0xfb-0xfc for function
+      keys.
+      This can be extremely verbose in the logging facility so we currently
+      nop it out for the time being.
+
 ***************************************************************************/
 
 #include "emu.h"
 #include "m6500_1.h"
+
+#include "m6502mcu.ipp"
 
 
 namespace {
@@ -82,7 +94,7 @@ DEFINE_DEVICE_TYPE(M6500_1, m6500_1_device, "m6500_1", "MOS Technology 6500/1");
 
 
 m6500_1_device::m6500_1_device(machine_config const &mconfig, char const *tag, device_t *owner, u32 clock)
-	: m6502_mcu_device(mconfig, M6500_1, tag, owner, clock)
+	: m6502_mcu_device_base<m6502_device>(mconfig, M6500_1, tag, owner, clock)
 	, m_port_in_cb{ *this }
 	, m_port_out_cb{ *this }
 	, m_cntr_out_cb{ *this }
@@ -132,7 +144,7 @@ WRITE_LINE_MEMBER(m6500_1_device::cntr_w)
 
 void m6500_1_device::device_resolve_objects()
 {
-	m6502_mcu_device::device_resolve_objects();
+	m6502_mcu_device_base<m6502_device>::device_resolve_objects();
 
 	m_port_in_cb.resolve_all();
 	m_port_out_cb.resolve_all_safe();
@@ -141,7 +153,7 @@ void m6500_1_device::device_resolve_objects()
 
 void m6500_1_device::device_start()
 {
-	m6502_mcu_device::device_start();
+	m6502_mcu_device_base<m6502_device>::device_start();
 
 	m_counter_base = 0U;
 
@@ -163,7 +175,7 @@ void m6500_1_device::device_start()
 
 void m6500_1_device::device_reset()
 {
-	m6502_mcu_device::device_reset();
+	m6502_mcu_device_base<m6502_device>::device_reset();
 
 	SP = 0x003fU;
 
@@ -228,7 +240,7 @@ void m6500_1_device::state_import(device_state_entry const &entry)
 		break;
 
 	default:
-		m6502_mcu_device::state_import(entry);
+		m6502_mcu_device_base<m6502_device>::state_import(entry);
 	}
 }
 
@@ -259,7 +271,7 @@ void m6500_1_device::state_export(device_state_entry const &entry)
 		break;
 
 	default:
-		m6502_mcu_device::state_export(entry);
+		m6502_mcu_device_base<m6502_device>::state_export(entry);
 	}
 }
 
@@ -503,6 +515,9 @@ void m6500_1_device::memory_map(address_map &map)
 	map(0x0089, 0x008a).w(FUNC(m6500_1_device::clear_edge));
 
 	map(0x008f, 0x008f).rw(FUNC(m6500_1_device::read_control_register), FUNC(m6500_1_device::write_control_register));
+
+	// TODO: mirror or actually unmapped?
+	map(0x0090, 0x00ff).nopr();
 
 	map(0x0800, 0x0fff).rom().region(DEVICE_SELF, 0);
 }

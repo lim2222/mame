@@ -15,10 +15,12 @@
 
 #include "emuopts.h"
 #include "drivenum.h"
+#include "fileio.h"
 #include "romload.h"
 #include "softlist_dev.h"
 
 #include "chd.h"
+#include "path.h"
 
 #include <algorithm>
 
@@ -45,8 +47,41 @@ class parent_rom_vector : public std::vector<parent_rom>
 public:
 	using std::vector<parent_rom>::vector;
 
-	void remove_redundant_parents()
+	void remove_redundant_parents(device_t const &device)
 	{
+		// remove parents with no shared ROMs
+		const_reverse_iterator firstparent(crend());
+		for (rom_entry const *region = rom_first_region(device); region && ((crend() == firstparent) || (back().type.get() != firstparent->type.get())); region = rom_next_region(region))
+		{
+			for (rom_entry const *rom = rom_first_file(region); rom; rom = rom_next_file(rom))
+			{
+				util::hash_collection const hashes(rom->hashdata());
+				auto const match(
+						std::find_if(
+							crbegin(),
+							firstparent,
+							[rom, &hashes] (parent_rom const &r)
+							{
+								if (r.length != rom_file_size(rom))
+									return false;
+								else if (!hashes.flag(util::hash_collection::FLAG_NO_DUMP))
+									return r.hashes == hashes;
+								else
+									return r.name == rom->name();
+							}));
+				if (match != firstparent)
+				{
+					firstparent = std::find_if(
+							crbegin(),
+							match,
+							[&match] (parent_rom const &r) { return r.type.get() == match->type.get(); });
+					if (back().type.get() == match->type.get())
+						break;
+				}
+			}
+		}
+		erase(firstparent.base(), cend());
+
 		while (!empty())
 		{
 			// find where the next parent starts
@@ -201,7 +236,7 @@ media_auditor::summary media_auditor::audit_media(const char *validation)
 			}
 		}
 	}
-	parentroms.remove_redundant_parents();
+	parentroms.remove_redundant_parents(m_enumerator.config()->root_device());
 
 	// count ROMs required/found
 	std::size_t found(0);
@@ -277,8 +312,8 @@ media_auditor::summary media_auditor::audit_media(const char *validation)
 			LOG("Total required=%u (shared=%u) found=%u (shared=%u parent=%u)\n", required, shared_required, found, shared_found, parent_found);
 	}
 
-	// if we only find files that are in the parent & either the set has no unique files or the parent is not found, then assume we don't have the set at all
-	if ((found == shared_found) && required && ((required != shared_required) || !parent_found))
+	// if we only find files that are in the parent and either the set has no unique files or the parent is not found, then assume we don't have the set at all
+	if ((found == shared_found) && required && (found != required) && ((required != shared_required) || !parent_found))
 	{
 		m_record_list.clear();
 		return NOTFOUND;
@@ -422,14 +457,16 @@ media_auditor::summary media_auditor::audit_samples()
 			emu_file file(m_enumerator.options().sample_path(), OPEN_FLAG_READ | OPEN_FLAG_NO_PRELOAD);
 			path_iterator path(searchpath);
 			std::string curpath;
-			while (path.next(curpath, samplename))
+			while (path.next(curpath))
 			{
+				util::path_append(curpath, samplename);
+
 				// attempt to access the file (.flac) or (.wav)
-				osd_file::error filerr = file.open(curpath + ".flac");
-				if (filerr != osd_file::error::NONE)
+				std::error_condition filerr = file.open(curpath + ".flac");
+				if (filerr)
 					filerr = file.open(curpath + ".wav");
 
-				if (filerr == osd_file::error::NONE)
+				if (!filerr)
 				{
 					record.set_status(audit_status::GOOD, audit_substatus::GOOD);
 					found++;
@@ -589,14 +626,14 @@ media_auditor::audit_record &media_auditor::audit_one_rom(const std::vector<std:
 	file.set_restrict_to_mediapath(1);
 
 	// open the file if we can
-	osd_file::error filerr;
+	std::error_condition filerr;
 	if (has_crc)
 		filerr = file.open(record.name(), crc);
 	else
 		filerr = file.open(record.name());
 
 	// if it worked, get the actual length and hashes, then stop
-	if (filerr == osd_file::error::NONE)
+	if (!filerr)
 		record.set_actual(file.hashes(m_validation), file.size());
 
 	// compute the final status
@@ -617,10 +654,10 @@ media_auditor::audit_record &media_auditor::audit_one_disk(const rom_entry *rom,
 
 	// open the disk
 	chd_file source;
-	const chd_error err = rom_load_manager::open_disk_image(m_enumerator.options(), std::forward<T>(args)..., rom, source);
+	const std::error_condition err = rom_load_manager::open_disk_image(m_enumerator.options(), std::forward<T>(args)..., rom, source);
 
 	// if we succeeded, get the hashes
-	if (err == CHDERR_NONE)
+	if (!err)
 	{
 		util::hash_collection hashes;
 
@@ -633,7 +670,7 @@ media_auditor::audit_record &media_auditor::audit_one_disk(const rom_entry *rom,
 	}
 
 	// compute the final status
-	compute_status(record, rom, err == CHDERR_NONE);
+	compute_status(record, rom, !err);
 	return record;
 }
 

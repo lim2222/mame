@@ -26,25 +26,28 @@ protected:
 	virtual void device_start() override;
 	virtual void device_stop() override;
 	virtual void device_reset() override;
-	virtual void device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr) override;
 
 	virtual void tra_callback() override;
 	virtual void tra_complete() override;
 	virtual void rcv_complete() override;
 
 private:
-	void queue(void);
+	TIMER_CALLBACK_MEMBER(update_queue);
 
 	required_ioport m_rs232_txbaud;
 	required_ioport m_rs232_rxbaud;
 	required_ioport m_rs232_databits;
 	required_ioport m_rs232_parity;
 	required_ioport m_rs232_stopbits;
+	required_ioport m_flow;
 
 	uint8_t m_input_buffer[ 1024 ];
 	uint32_t m_input_count;
 	uint32_t m_input_index;
 	emu_timer *m_timer_poll;
+	int m_rts;
+	int m_dtr;
+	int m_xoff;
 };
 
 DECLARE_DEVICE_TYPE(PSEUDO_TERMINAL, pseudo_terminal_device)

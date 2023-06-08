@@ -18,14 +18,14 @@
 #include "emu.h"
 #include "wd33c9x.h"
 
-#define LOG_READS       (1 << 0)
-#define LOG_WRITES      (1 << 1)
-#define LOG_COMMANDS    (1 << 2)
-#define LOG_ERRORS      (1 << 3)
-#define LOG_MISC        (1 << 4)
-#define LOG_LINES       (1 << 5)
-#define LOG_STATE       (1 << 6)
-#define LOG_STEP        (1 << 7)
+#define LOG_READS       (1U << 1)
+#define LOG_WRITES      (1U << 2)
+#define LOG_COMMANDS    (1U << 3)
+#define LOG_ERRORS      (1U << 4)
+#define LOG_MISC        (1U << 5)
+#define LOG_LINES       (1U << 6)
+#define LOG_STATE       (1U << 7)
+#define LOG_STEP        (1U << 8)
 #define LOG_REGS        (LOG_READS | LOG_WRITES)
 #define LOG_ALL         (LOG_REGS | LOG_COMMANDS | LOG_ERRORS | LOG_MISC | LOG_LINES | LOG_STATE | LOG_STEP)
 
@@ -390,7 +390,7 @@ void wd33c9x_base_device::device_start()
 {
 	m_irq_cb.resolve_safe();
 	m_drq_cb.resolve_safe();
-	m_timer = timer_alloc(0);
+	m_timer = timer_alloc(FUNC(wd33c9x_base_device::update_step), this);
 	save_item(NAME(m_addr));
 	save_item(NAME(m_regs));
 	save_item(NAME(m_command_length));
@@ -443,10 +443,10 @@ void wd33c9x_base_device::device_reset()
 
 
 //-------------------------------------------------
-//  device_timer - device-specific timer handler
+//  update_step -
 //-------------------------------------------------
 
-void wd33c9x_base_device::device_timer(emu_timer &timer, device_timer_id tid, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(wd33c9x_base_device::update_step)
 {
 	step(true);
 }

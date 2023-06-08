@@ -29,10 +29,9 @@
 #include "emu.h"
 #include "machine/am9513.h"
 
-#define LOG_GENERAL (1U << 0)
-#define LOG_MODE (1U << 1)
+#define LOG_MODE  (1U << 1)
 #define LOG_INPUT (1U << 2)
-#define LOG_TC (1U << 3)
+#define LOG_TC    (1U << 3)
 //#define VERBOSE (LOG_GENERAL | LOG_MODE)
 
 #include "logmacro.h"
@@ -113,7 +112,7 @@ void am9513_device::device_start()
 	// Set up frequency timers
 	for (int f = 0; f < 5; f++)
 	{
-		m_freq_timer[f] = timer_alloc(TIMER_F1 + f);
+		m_freq_timer[f] = timer_alloc(FUNC(am9513_device::timer_tick), this);
 		m_freq_timer_selected[f] = (f == 0) ? (m_fout_cb.isnull() ? 0x3e : 0x3f) : 0;
 		m_freq_timer_cycle[f] = 0;
 	}
@@ -205,12 +204,12 @@ void am9513_device::init_freq_timer(int f)
 
 	attotime freq = clocks_to_attotime(scale);
 	if (m_freq_timer_cycle[f] == 0)
-		m_freq_timer[f]->adjust(freq, 0, freq);
+		m_freq_timer[f]->adjust(freq, f, freq);
 	else
-		m_freq_timer[f]->adjust(freq / 2, 0, freq / 2);
+		m_freq_timer[f]->adjust(freq / 2, f, freq / 2);
 	m_freq_timer[f]->enable(m_freq_timer_selected[f] != 0);
 
-	LOGMASKED(LOG_GENERAL, "F%d = %f Hz (%s cycle emulation)\n", f + 1, double(clock()) / scale,
+	LOG("F%d = %f Hz (%s cycle emulation)\n", f + 1, double(clock()) / scale,
 			m_freq_timer_selected[f] == 0 ? "no" : m_freq_timer_cycle[f] == 0 ? "partial" : "full");
 }
 
@@ -228,21 +227,18 @@ void am9513_device::device_clock_changed()
 
 
 //-------------------------------------------------
-//  device_timer - called whenever a device timer
-//  fires
+//  timer_tick - advance our counters
 //-------------------------------------------------
 
-void am9513_device::device_timer(emu_timer &timer, device_timer_id id, int param, void *ptr)
+TIMER_CALLBACK_MEMBER(am9513_device::timer_tick)
 {
-	assert(id >= TIMER_F1 && id <= TIMER_F5);
-
-	int cycle = m_freq_timer_cycle[id - TIMER_F1] == 0 ? 2 : 1;
+	int cycle = m_freq_timer_cycle[param] == 0 ? 2 : 1;
 	while (cycle-- > 0)
 	{
-		m_f ^= 1 << (id - TIMER_F1);
-		bool level = BIT(m_f, id - TIMER_F1);
+		m_f ^= 1 << param;
+		bool level = BIT(m_f, param);
 
-		int source = id - TIMER_F1 + 11;
+		int source = param + 11;
 		for (int c = 0; c < 5; c++)
 		{
 			if ((m_counter_mode[c] & 0x0f00) >> 8 == source && BIT(m_counter_mode[c], 12) == !level)
@@ -250,7 +246,7 @@ void am9513_device::device_timer(emu_timer &timer, device_timer_id id, int param
 		}
 
 		// FOUT Source = Fn
-		if ((m_mmr & 0x00f0) >> 4 == source || ((m_mmr & 0x00f0) == 0 && id == TIMER_F1))
+		if ((m_mmr & 0x00f0) >> 4 == source || ((m_mmr & 0x00f0) == 0 && param == 0))
 			fout_tick();
 	}
 }
@@ -521,7 +517,7 @@ void am9513_device::arm_counter(int c)
 {
 	if (!m_counter_armed[c])
 	{
-		LOGMASKED(LOG_GENERAL, "Counter %d: Arming counter\n", c + 1);
+		LOG("Counter %d: Arming counter\n", c + 1);
 		m_counter_armed[c] = true;
 
 		// Count starts upon first active gate edge after arming in Modes C, F, I, L, O, R, X
@@ -539,7 +535,7 @@ void am9513_device::disarm_counter(int c)
 {
 	if (m_counter_armed[c])
 	{
-		LOGMASKED(LOG_GENERAL, "Counter %d: Disarming counter\n", c + 1);
+		LOG("Counter %d: Disarming counter\n", c + 1);
 		m_counter_armed[c] = false;
 		m_counter_running[c] = false;
 	}
@@ -553,7 +549,7 @@ void am9513_device::disarm_counter(int c)
 void am9513_device::save_counter(int c)
 {
 	m_counter_hold[c] = m_count[c];
-	LOGMASKED(LOG_GENERAL, "Counter %d: Count %u saved\n", c + 1, m_count[c]);
+	LOG("Counter %d: Count %u saved\n", c + 1, m_count[c]);
 }
 
 
@@ -872,7 +868,7 @@ void am9513_device::step_counter(int c, bool force_load)
 		if (force_load)
 		{
 			m_count[c] = reload_from_hold(c) ? m_counter_hold[c] : m_counter_load[c];
-			LOGMASKED(LOG_GENERAL, "Counter %d: %u loaded\n", c + 1, m_count[c]);
+			LOG("Counter %d: %u loaded\n", c + 1, m_count[c]);
 		}
 	}
 
@@ -1115,7 +1111,7 @@ void am9513_device::internal_write(u16 data)
 	case 0x07: // Alarm 1 register
 	case 0x0f: // Alarm 2 register
 		if (m_alarm[BIT(m_dpr, 3)] != data)
-			LOGMASKED(LOG_GENERAL, "Counter %d: Alarm = %u\n", BIT(m_dpr, 3) ? 2 : 1, data);
+			LOG("Counter %d: Alarm = %u\n", BIT(m_dpr, 3) ? 2 : 1, data);
 		m_alarm[BIT(m_dpr, 3)] = data;
 		break;
 	case 0x01: // Counter 1 mode register
@@ -1124,7 +1120,7 @@ void am9513_device::internal_write(u16 data)
 	case 0x04: // Counter 4 mode register
 	case 0x05: // Counter 5 mode register
 		if (m_counter_mode[(m_dpr & 7) - 1] != data)
-			LOGMASKED(LOG_GENERAL, "Counter %d: Mode = %04X\n", m_dpr & 7, data);
+			LOG("Counter %d: Mode = %04X\n", m_dpr & 7, data);
 		set_counter_mode((m_dpr & 7) - 1, data);
 		break;
 	case 0x09: // Counter 1 load register
@@ -1133,7 +1129,7 @@ void am9513_device::internal_write(u16 data)
 	case 0x0c: // Counter 4 load register
 	case 0x0d: // Counter 5 load register
 		if (m_counter_load[(m_dpr & 7) - 1] != data)
-			LOGMASKED(LOG_GENERAL, "Counter %d: Load = %u\n", m_dpr & 7, data);
+			LOG("Counter %d: Load = %u\n", m_dpr & 7, data);
 		m_counter_load[(m_dpr & 7) - 1] = data;
 		break;
 	case 0x11: case 0x19: // Counter 1 hold register
@@ -1142,7 +1138,7 @@ void am9513_device::internal_write(u16 data)
 	case 0x14: case 0x1c: // Counter 4 hold register
 	case 0x15: case 0x1d: // Counter 5 hold register
 		if (m_counter_hold[(m_dpr & 7) - 1] != data)
-			LOGMASKED(LOG_GENERAL, "Counter %d: Hold = %u\n", m_dpr & 7, data);
+			LOG("Counter %d: Hold = %u\n", m_dpr & 7, data);
 		m_counter_hold[(m_dpr & 7) - 1] = data;
 		break;
 	default: // Invalid register

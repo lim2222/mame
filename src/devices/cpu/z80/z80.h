@@ -33,11 +33,13 @@ public:
 	z80_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
 	void z80_set_cycle_tables(const uint8_t *op, const uint8_t *cb, const uint8_t *ed, const uint8_t *xy, const uint8_t *xycb, const uint8_t *ex);
+	void set_mtm_cycles(uint8_t mtm_cycles);
 	template <typename... T> void set_memory_map(T &&... args) { set_addrmap(AS_PROGRAM, std::forward<T>(args)...); }
 	template <typename... T> void set_m1_map(T &&... args) { set_addrmap(AS_OPCODES, std::forward<T>(args)...); }
 	template <typename... T> void set_io_map(T &&... args) { set_addrmap(AS_IO, std::forward<T>(args)...); }
 	auto irqack_cb() { return m_irqack_cb.bind(); }
 	auto refresh_cb() { return m_refresh_cb.bind(); }
+	auto nomreq_cb() { return m_nomreq_cb.bind(); }
 	auto halt_cb() { return m_halt_cb.bind(); }
 
 protected:
@@ -58,6 +60,7 @@ protected:
 
 	// device_memory_interface overrides
 	virtual space_config_vector memory_space_config() const override;
+	virtual u32 translate_memory_address(u16 address) { return address; }
 
 	// device_state_interface overrides
 	virtual void state_import(const device_state_entry &entry) override;
@@ -149,9 +152,11 @@ protected:
 	uint8_t in(uint16_t port);
 	void out(uint16_t port, uint8_t value);
 	virtual uint8_t rm(uint16_t addr);
+	uint8_t rm_reg(uint16_t addr);
 	void rm16(uint16_t addr, PAIR &r);
 	virtual void wm(uint16_t addr, uint8_t value);
 	void wm16(uint16_t addr, PAIR &r);
+	void wm16_sp(PAIR &r);
 	virtual uint8_t rop();
 	virtual uint8_t arg();
 	virtual uint16_t arg16();
@@ -232,6 +237,8 @@ protected:
 	virtual void check_interrupts();
 	void take_interrupt();
 	void take_nmi();
+	void nomreq_ir(s8 cycles);
+	void nomreq_addr(u16 addr, s8 cycles);
 
 	// address spaces
 	const address_space_config m_program_config;
@@ -244,22 +251,23 @@ protected:
 
 	devcb_write_line m_irqack_cb;
 	devcb_write8 m_refresh_cb;
+	devcb_write8 m_nomreq_cb;
 	devcb_write_line m_halt_cb;
 
-	PAIR            m_prvpc;
-	PAIR            m_pc;
-	PAIR            m_sp;
-	PAIR            m_af;
-	PAIR            m_bc;
-	PAIR            m_de;
-	PAIR            m_hl;
-	PAIR            m_ix;
-	PAIR            m_iy;
-	PAIR            m_wz;
-	PAIR            m_af2;
-	PAIR            m_bc2;
-	PAIR            m_de2;
-	PAIR            m_hl2;
+	PAIR              m_prvpc;
+	PAIR              m_pc;
+	PAIR              m_sp;
+	PAIR              m_af;
+	PAIR              m_bc;
+	PAIR              m_de;
+	PAIR              m_hl;
+	PAIR              m_ix;
+	PAIR              m_iy;
+	PAIR              m_wz;
+	PAIR              m_af2;
+	PAIR              m_bc2;
+	PAIR              m_de2;
+	PAIR              m_hl2;
 	uint8_t           m_r;
 	uint8_t           m_r2;
 	uint8_t           m_iff1;
@@ -270,13 +278,14 @@ protected:
 	uint8_t           m_nmi_state;          /* nmi line state */
 	uint8_t           m_nmi_pending;        /* nmi pending */
 	uint8_t           m_irq_state;          /* irq line state */
-	int             m_wait_state;         // wait line state
-	int             m_busrq_state;        // bus request line state
+	int               m_wait_state;         // wait line state
+	int               m_busrq_state;        // bus request line state
 	uint8_t           m_after_ei;           /* are we in the EI shadow? */
 	uint8_t           m_after_ldair;        /* same, but for LD A,I or LD A,R */
 	uint32_t          m_ea;
 
-	int             m_icount;
+	int               m_icount;
+	int               m_icount_executing;
 	uint8_t           m_rtemp;
 	const uint8_t *   m_cc_op;
 	const uint8_t *   m_cc_cb;
@@ -284,6 +293,7 @@ protected:
 	const uint8_t *   m_cc_xy;
 	const uint8_t *   m_cc_xycb;
 	const uint8_t *   m_cc_ex;
+	uint8_t           m_mtm_cycles;
 };
 
 DECLARE_DEVICE_TYPE(Z80, z80_device)

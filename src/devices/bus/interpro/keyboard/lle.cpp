@@ -148,14 +148,13 @@
 #include "speaker.h"
 #include "machine/keyboard.ipp"
 
-#define LOG_GENERAL (1U << 0)
 #define LOG_RXTX    (1U << 1)
 #define LOG_PORT    (1U << 2)
 
 #define VERBOSE (0)
 #include "logmacro.h"
 
-DEFINE_DEVICE_TYPE_NS(INTERPRO_LLE_EN_US_KEYBOARD, bus::interpro::keyboard, lle_en_us_device, "kbd_lle_en_us", "InterPro Keyboard (LLE, US English)")
+DEFINE_DEVICE_TYPE(INTERPRO_LLE_EN_US_KEYBOARD, bus::interpro::keyboard::lle_en_us_device, "kbd_lle_en_us", "InterPro Keyboard (LLE, US English)")
 
 namespace bus::interpro::keyboard {
 

@@ -1,8 +1,8 @@
 // license:BSD-3-Clause
 // copyright-holders:Aaron Giles
 
-#ifndef MAME_SOUND_YM3526_H
-#define MAME_SOUND_YM3526_H
+#ifndef MAME_SOUND_YMOPL_H
+#define MAME_SOUND_YMOPL_H
 
 #pragma once
 
@@ -46,7 +46,7 @@ public:
 
 protected:
 	// ROM device overrides
-	virtual void rom_bank_updated() override;
+	virtual void rom_bank_pre_change() override;
 
 private:
 	// ADPCM read/write callbacks
@@ -106,7 +106,7 @@ public:
 
 protected:
 	// device_rom_interface overrides
-	virtual void rom_bank_updated() override;
+	virtual void rom_bank_pre_change() override;
 
 	// sound overrides
 	virtual void sound_stream_update(sound_stream &stream, std::vector<read_stream_view> const &inputs, std::vector<write_stream_view> &outputs) override;
@@ -205,4 +205,4 @@ protected:
 	required_region_ptr<u8> m_internal; // internal memory region
 };
 
-#endif // MAME_SOUND_YM3526_H
+#endif // MAME_SOUND_YMOPL_H

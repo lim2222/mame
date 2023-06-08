@@ -433,13 +433,13 @@ _mulu_64x64(uint64_t a, uint64_t b, uint64_t &hi)
 ***************************************************************************/
 
 /*-------------------------------------------------
-    count_leading_zeros - return the number of
+    count_leading_zeros_32 - return the number of
     leading zero bits in a 32-bit value
 -------------------------------------------------*/
 
-#define count_leading_zeros _count_leading_zeros
+#define count_leading_zeros_32 _count_leading_zeros_32
 inline uint8_t ATTR_CONST ATTR_FORCE_INLINE
-_count_leading_zeros(uint32_t value)
+_count_leading_zeros_32(uint32_t value)
 {
 	uint32_t result;
 	__asm__ (
@@ -450,18 +450,18 @@ _count_leading_zeros(uint32_t value)
 		, [bias]   "rm"  (~uint32_t(0)) // 'bias' can be register or memory
 		: "cc"                          // clobbers condition codes
 	);
-	return 31U - result;
+	return uint8_t(31U - result);
 }
 
 
 /*-------------------------------------------------
-    count_leading_ones - return the number of
+    count_leading_ones_32 - return the number of
     leading one bits in a 32-bit value
 -------------------------------------------------*/
 
-#define count_leading_ones _count_leading_ones
+#define count_leading_ones_32 _count_leading_ones_32
 inline uint8_t ATTR_CONST ATTR_FORCE_INLINE
-_count_leading_ones(uint32_t value)
+_count_leading_ones_32(uint32_t value)
 {
 	uint32_t result;
 	__asm__ (
@@ -472,7 +472,143 @@ _count_leading_ones(uint32_t value)
 		, [bias]   "rm"  (~uint32_t(0)) // 'bias' can be register or memory
 		: "cc"                          // clobbers condition codes
 	);
-	return 31U - result;
+	return uint8_t(31U - result);
 }
+
+
+/*-------------------------------------------------
+    count_leading_zeros_64 - return the number of
+    leading zero bits in a 64-bit value
+-------------------------------------------------*/
+
+#ifdef __x86_64__
+#define count_leading_zeros_64 _count_leading_zeros_64
+inline uint8_t ATTR_CONST ATTR_FORCE_INLINE
+_count_leading_zeros_64(uint64_t value)
+{
+	uint64_t result;
+	__asm__ (
+		" bsrq    %[value], %[result] ;"
+		" cmovzq  %[bias], %[result]  ;"
+		: [result] "=&r" (result)       // result can be in any register
+		: [value]  "rm"  (value)        // 'value' can be register or memory
+		, [bias]   "rm"  (~uint64_t(0)) // 'bias' can be register or memory
+		: "cc"                          // clobbers condition codes
+	);
+	return uint8_t(63U - result);
+}
+#endif
+
+
+/*-------------------------------------------------
+    count_leading_ones_64 - return the number of
+    leading one bits in a 64-bit value
+-------------------------------------------------*/
+
+#ifdef __x86_64__
+#define count_leading_ones_64 _count_leading_ones_64
+inline uint8_t ATTR_CONST ATTR_FORCE_INLINE
+_count_leading_ones_64(uint64_t value)
+{
+	uint64_t result;
+	__asm__ (
+		" bsrq    %[value], %[result] ;"
+		" cmovzq  %[bias], %[result]  ;"
+		: [result] "=&r" (result)       // result can be in any register
+		: [value]  "rm"  (~value)       // 'value' can be register or memory
+		, [bias]   "rm"  (~uint64_t(0)) // 'bias' can be register or memory
+		: "cc"                          // clobbers condition codes
+	);
+	return uint8_t(63U - result);
+}
+#endif
+
+
+/*-------------------------------------------------
+    rotl_32 - circularly shift a 32-bit value left
+    by the specified number of bits (modulo 32)
+-------------------------------------------------*/
+
+#define rotl_32 _rotl_32
+inline uint32_t ATTR_CONST ATTR_FORCE_INLINE
+_rotl_32(uint32_t val, int shift)
+{
+	uint32_t result;
+	__asm__ (
+		" roll %[shift], %[value] ;"
+		: [result] "=rm" (result)                   // result can be in register or memory
+		: [value]  "%0" (val)                       // 'value' is updated with result
+		, [shift]  "Ic" (uint8_t(unsigned(shift)))  // 'shift' must be constant in 0-31 range or in cl
+		: "cc"                                      // clobbers condition codes
+	);
+	return result;
+}
+
+
+/*-------------------------------------------------
+    rotr_32 - circularly shift a 32-bit value right
+    by the specified number of bits (modulo 32)
+-------------------------------------------------*/
+
+#define rotr_32 _rotr_32
+inline uint32_t ATTR_CONST ATTR_FORCE_INLINE
+rotr_32(uint32_t val, int shift)
+{
+	uint32_t result;
+	__asm__ (
+		" rorl %[shift], %[value] ;"
+		: [result] "=rm" (result)                   // result can be in register or memory
+		: [value]  "%0" (val)                       // 'value' is updated with result
+		, [shift]  "Ic" (uint8_t(unsigned(shift)))  // 'shift' must be constant in 0-31 range or in cl
+		: "cc"                                      // clobbers condition codes
+	);
+	return result;
+}
+
+
+/*-------------------------------------------------
+    rotl_64 - circularly shift a 64-bit value left
+    by the specified number of bits (modulo 64)
+-------------------------------------------------*/
+
+#ifdef __x86_64__
+#define rotl_64 _rotl_64
+inline uint64_t ATTR_CONST ATTR_FORCE_INLINE
+_rotl_64(uint64_t val, int shift)
+{
+	uint64_t result;
+	__asm__ (
+		" rolq %[shift], %[value] ;"
+		: [result] "=rm" (result)                   // result can be in register or memory
+		: [value]  "%0" (val)                       // 'value' is updated with result
+		, [shift]  "Jc" (uint8_t(unsigned(shift)))  // 'shift' must be constant in 0-63 range or in cl
+		: "cc"                                      // clobbers condition codes
+	);
+	return result;
+}
+#endif
+
+
+/*-------------------------------------------------
+    rotr_64 - circularly shift a 64-bit value right
+    by the specified number of bits (modulo 64)
+-------------------------------------------------*/
+
+#ifdef __x86_64__
+#define rotr_64 _rotr_64
+inline uint64_t ATTR_CONST ATTR_FORCE_INLINE
+rotr_64(uint64_t val, int shift)
+{
+	uint64_t result;
+	__asm__ (
+		" rorq %[shift], %[value] ;"
+		: [result] "=rm" (result)                   // result can be in register or memory
+		: [value]  "%0" (val)                       // 'value' is updated with result
+		, [shift]  "Jc" (uint8_t(unsigned(shift)))  // 'shift' must be constant in 0-63 range or in cl
+		: "cc"                                      // clobbers condition codes
+	);
+	return result;
+}
+#endif
 
 #endif // MAME_OSD_EIGCCX86_H
